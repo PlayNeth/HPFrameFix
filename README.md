@@ -46,7 +46,7 @@ The game no longer needs its installer, its registry entries or the CD: with the
 
 ## Uninstalling
 
-Delete `HPFrameFix.asi`, and the ASI loader if nothing else uses it. You can also delete `HPFrameFix.ini`, `HPFrameFix_registry.ini` and `HPFrameFix.log`.
+Delete `HPFrameFix.asi`, and the ASI loader if nothing else uses it. You can also delete `HPFrameFix.ini` and `HPFrameFix.log` (and `HPFrameFix_registry.ini`, left by 0.1.0).
 
 ---
 
@@ -93,7 +93,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 ### Portable
 
-- **Registry:** the game's registry settings live in `HPFrameFix_registry.ini` next to the `.asi`. They're taken over from the Windows registry once, if they're there.
+- **Registry:** the game needs no registry entries. The renderer and display adapter come from `HPFrameFix.ini` (`renderer`, `d3dDevice`); anything else is read from the Windows registry if it's there.
 - **Install paths:** folders a partial install puts on the CD's drive letter are read from the game's folder when they're there.
 - **No `install.win`:** a full install is assumed instead of the "files are corrupted" error.
 - **No CD check.**
@@ -108,6 +108,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `targetFPS` | `-1` | `-1` = v-sync, else the refresh rate; `0` = no limit; `N` = N fps. |
 | `interpDelay` | `1.0` | Raise to `1.5` if you see hitches. |
 | `renderer` | `d3d` | `d3d`, `software`, `voodoo`, `voodoo2`, a renderer DLL name, or empty for the game's own setting. |
+| `d3dDevice` | `-1` | Direct3D's display adapter: `0` = primary, `1` = second; `-1` = the Windows registry's, else the primary. |
 | `widescreen` | `1` | Master switch for every widescreen setting. |
 | `wsMenus` | `1` | Menus at the chosen resolution: `1` = 4:3 in the middle, `2` = stretched, `0` = 640×480. |
 | `wsPauseMenu` | `1` | In-race menus: `1` = frame over the screen, `2` = all in 4:3, `0` = stretched. |
@@ -115,7 +116,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `maxTextureSize` | `512` | Largest texture the game loads. |
 | `fixSound` | `1` | Sound driver fix. |
 | `soundLatencyMs` | `40` | Raise it if you hear dropouts. |
-| `portableRegistry` | `1` | The game's registry settings in `HPFrameFix_registry.ini`. |
+| `portableRegistry` | `1` | The game's registry settings come from the mod, so no registry entries are needed. |
 | `exeCheck` | `1` | Turns the mod off if the exe differs; `0` patches anyway (only for a modified exe you know is the same version). |
 | `logToFile` | `0` | `1` writes `HPFrameFix.log`. |
 
@@ -128,7 +129,6 @@ All next to the `.asi`:
 | File | |
 |---|---|
 | `HPFrameFix.ini` | Settings. The mod also saves your race resolution there. |
-| `HPFrameFix_registry.ini` | The game's registry settings, with `portableRegistry=1`. |
 | `HPFrameFix.log` | What the mod did, with `logToFile=1`; send it with any bug report. |
 
 ## Troubleshooting

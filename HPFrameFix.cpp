@@ -44,9 +44,12 @@
 //    still run its callback poll (0x4E7630).
 //  - portableRegistry: the game's registry values (renderer choice under
 //    HKLM\SOFTWARE\Electronic Arts\Need For Speed III, network DLL locations
-//    under HKLM\SOFTWARE\EA-NPS\DLL) come from HPFrameFix_registry.ini, next to
-//    the .asi. They are taken over from the Windows registry once if they are
-//    there. The game only reads the registry, so nothing is written back.
+//    under HKLM\SOFTWARE\EA-NPS\DLL) are answered by the mod: the renderer and
+//    the display adapter from HPFrameFix.ini (renderer=, d3dDevice=), anything
+//    else from the Windows registry if it has it. The game runs with none of
+//    them set. (Up to 0.1.0 they lived in a file of their own,
+//    HPFrameFix_registry.ini; one that's still there is still read.) The game
+//    only reads the registry, so nothing is written back.
 //  - portableInstallPaths: install.win (game folder) lists the data folders;
 //    a partial install points some at the CD (E:\FeData\movies\ ...). After the
 //    game reads it (0x4A6E10, lines in [0x7A2634], 128 bytes each), every
@@ -107,7 +110,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.0"
+#define HPFF_VERSION "0.1.1"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -305,6 +308,7 @@ struct Config {
     int   soundCapture     = -1;    // seconds of the game's mix written to HPFrameFix_mix.wav (-1: 120 in test builds, else 0)
     int   soundLatencyMs   = 40;    // how far ahead of the play cursor it writes (the game's 20, then shrunk)     // let the movie stream thread exit before it's killed
     char  language[16]     = "english";   // for the built-in install.win
+    int   d3dDevice        = -1;    // display adapter for Direct3D (0 = primary); -1 = not set here
     char  renderer[64]     = "d3d"; // d3d, software, voodoo, voodoo2, a DLL name, or "" = the game's setting
     char  driversFolder[MAX_PATH] = "";   // renderer DLLs; "" = game folder
     int   exeCheck         = 1;     // 1 = turn the mod off if nfs3.exe differs, 0 = patch anyway
@@ -396,9 +400,12 @@ static const char kIniText[] =
     ";   voodoo   = 3dfx Voodoo 1 (voodooa.dll)\n"
     ";   voodoo2  = 3dfx Voodoo2 (voodoo2a.dll; Banshee/Voodoo3 with the Banshee patch's DLL)\n"
     ";   or one of the game's other renderer DLL names.\n"
-    ";   Empty = the game's own setting (ThrashDriver in HPFrameFix_registry.ini, or the\n"
-    ";   Windows registry)\n"
+    ";   Empty = the game's own setting (the Windows registry's; software if it has none)\n"
     "renderer=d3d\n"
+    "\n"
+    "; Direct3D: which display adapter to use. 0 = the primary display, 1 = the second...\n"
+    "; -1 = not set here (the Windows registry's if it has one, else the primary display)\n"
+    "d3dDevice=-1\n"
     "\n"
     "; Folder the renderer DLLs are loaded from: a folder in the game folder, or a full\n"
     "; path. A DLL that isn't there is loaded from the game folder. Empty = the game folder\n"
@@ -548,8 +555,8 @@ static const char kIniText[] =
     "\n"
     "[Portable]\n"
     "\n"
-    "; The game's registry values (renderer, network DLLs) come from\n"
-    "; HPFrameFix_registry.ini next to this file instead of the Windows registry\n"
+    "; The game needs no registry entries: the renderer and the display adapter come from\n"
+    "; this file (renderer, d3dDevice). 0 = the Windows registry as it is\n"
     "portableRegistry=1\n"
     "\n"
     "; Folders that install.win puts on a drive letter (E:\\FeData\\movies\\ from a partial\n"
@@ -611,6 +618,7 @@ static void LoadConfig() {
         else if (!_stricmp(key, "soundCapture"))         g_cfg.soundCapture = atoi(val);
         else if (!_stricmp(key, "fixMovieFreeze"))       g_cfg.fixMovieFreeze = atoi(val);
         else if (!_stricmp(key, "noCDCheck"))            g_cfg.noCDCheck = atoi(val);
+        else if (!_stricmp(key, "d3dDevice"))            g_cfg.d3dDevice = atoi(val);
         else if (!_stricmp(key, "noDiskSpaceCheck"))     g_cfg.noDiskSpaceCheck = atoi(val);
         else if (!_stricmp(key, "wsWeather"))            g_cfg.wsWeather = atoi(val);
         else if (!_stricmp(key, "interpolate"))          g_cfg.interpolate = atoi(val);
@@ -3875,10 +3883,16 @@ static void InstallNoCD() {
 }
 
 // ---------------------------------------------------------------------------
-// Portable registry: the game's own keys live in HPFrameFix_registry.ini.
-// The game opens them with RegOpenKeyExA and reads with RegQueryValueExA; it
-// never writes the registry. Other keys (Explorer's shell folders, the
-// performance counters) still go to the real registry.
+// Portable registry: the game's own keys are answered here. The game opens
+// them with RegOpenKeyExA and reads with RegQueryValueExA; it never writes the
+// registry. "Thrash Driver" is renderer= from HPFrameFix.ini, "D3D Device" is
+// d3dDevice=; a value the ini doesn't give comes from the Windows registry if
+// it's there, and otherwise isn't there - which the game copes with (software
+// renderer, primary display, no card workarounds, no network DLLs). Up to
+// 0.1.0 the values were kept in HPFrameFix_registry.ini; a file left from then
+// is still read, ahead of the Windows registry, but none is made any more.
+// Other keys (Explorer's shell folders, the performance counters) go to the
+// real registry.
 // ---------------------------------------------------------------------------
 typedef LONG (WINAPI *RegOpenKeyExA_t)(HKEY, LPCSTR, DWORD, REGSAM, PHKEY);
 typedef LONG (WINAPI *RegQueryValueExA_t)(HKEY, LPCSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
@@ -3888,7 +3902,8 @@ static RegOpenKeyExA_t    g_oRegOpenKeyExA = nullptr;
 static RegQueryValueExA_t g_oRegQueryValueExA = nullptr;
 static RegCloseKey_t      g_oRegCloseKey = nullptr;
 static RegFlushKey_t      g_oRegFlushKey = nullptr;
-static char g_regIni[MAX_PATH] = {};
+static char g_regIni[MAX_PATH] = {};     // HPFrameFix_registry.ini of an earlier version
+static bool g_regIniOld = false;         // ... and it's there
 static char g_rendererDll[64] = {};      // from renderer= ("" = the game's setting)
 static HKEY g_realGameKey = nullptr;     // the real game key, when only renderer= is hooked
 
@@ -3972,48 +3987,16 @@ static void VLogOnce(const char* entry, const char* what) {
     static char seen[16][24]; static int n = 0;
     for (int i = 0; i < n; i++) if (!strcmp(seen[i], entry)) return;
     if (n < 16) lstrcpynA(seen[n++], entry, 24);
-    LogfAsync("registry: %s %s (HPFrameFix_registry.ini)\n", entry, what);
+    LogfAsync("registry: %s %s\n", entry, what);
 }
 
-// First use, on the game thread (not in DllMain): create the file with notes,
-// and take over each value from the real registry if the file doesn't have it.
-static void RegFirstUse() {
-    static bool done = false;
-    if (done) return;
-    done = true;
-    if (GetFileAttributesA(g_regIni) == INVALID_FILE_ATTRIBUTES) {
-        if (FILE* f = fopen(g_regIni, "w")) {
-            fputs("; HPFrameFix_registry.ini: the game's registry values (portableRegistry=1)\n"
-                  "; ThrashDriver = renderer DLL (drivers folder or game folder): d3da.dll\n"
-                  ";   (Direct3D), voodooa.dll / voodoo2a.dll (Glide), softtria.dll (software);\n"
-                  ";   empty = the game's default (software). renderer= in HPFrameFix.ini wins.\n"
-                  "; D3DDevice = display adapter (0 = primary display, the default)\n"
-                  "; D3DDeviceDescription = graphics card name; only \"RAGE PRO\" and\n"
-                  ";   \"STB Velocity 128\" turn on workarounds. Not needed otherwise.\n"
-                  "; NPSDLL, LoginClient, AnalyzeAPI, NPSClientDLL = network DLL paths (online play)\n"
-                  "; Values found in the Windows registry are copied here the first time.\n"
-                  "[Registry]\n", f);
-            fclose(f);
-        }
-    }
-    const char* subs[3] = { nullptr, kVKeys[0].sub, kVKeys[1].sub };
-    HKEY keys[3] = {};
-    for (int id = 1; id <= 2; id++)
-        if (g_oRegOpenKeyExA(HKEY_LOCAL_MACHINE, subs[id], 0, KEY_READ, &keys[id]) != ERROR_SUCCESS) keys[id] = nullptr;
-    for (const auto& v : kVValues) {
-        char cur[8] = {};
-        if (GetPrivateProfileStringA("Registry", v.entry, "", cur, sizeof(cur), g_regIni)) continue;
-        if (!keys[v.key]) continue;
-        BYTE val[512] = {}; DWORD cb = sizeof(val) - 1, type = 0;
-        if (g_oRegQueryValueExA(keys[v.key], v.name, nullptr, &type, val, &cb) != ERROR_SUCCESS) continue;
-        char text[512] = {};
-        if (type == REG_DWORD && cb == 4) snprintf(text, sizeof(text), "%lu", (unsigned long)*(DWORD*)val);
-        else if ((type == REG_SZ || type == REG_EXPAND_SZ) && val[0]) lstrcpynA(text, (const char*)val, sizeof(text));
-        if (!text[0]) continue;
-        WritePrivateProfileStringA("Registry", v.entry, text, g_regIni);
-        LogfAsync("registry: %s taken over from the Windows registry\n", v.entry);
-    }
-    for (int id = 1; id <= 2; id++) if (keys[id]) g_oRegCloseKey(keys[id]);
+// a value of one of the game's keys, straight from the Windows registry
+static LONG RealValue(int id, LPCSTR name, LPDWORD type, LPBYTE data, LPDWORD cb) {
+    HKEY k = nullptr;
+    if (g_oRegOpenKeyExA(HKEY_LOCAL_MACHINE, kVKeys[id - 1].sub, 0, KEY_READ, &k) != ERROR_SUCCESS) return ERROR_FILE_NOT_FOUND;
+    LONG r = g_oRegQueryValueExA(k, name, nullptr, type, data, cb);
+    g_oRegCloseKey(k);
+    return r;
 }
 
 // The hooks are in place with portableRegistry=1, or with renderer= set (then
@@ -4022,7 +4005,6 @@ static LONG WINAPI HkRegOpenKeyExA(HKEY root, LPCSTR sub, DWORD o, REGSAM sam, P
     if (const VKeyDef* k = VKeyFor(root, sub)) {
         if (!out) return ERROR_INVALID_PARAMETER;
         if (g_cfg.portableRegistry) {
-            RegFirstUse();
             *out = reinterpret_cast<HKEY>(kVKeyBase + k->id);
             return ERROR_SUCCESS;
         }
@@ -4046,16 +4028,25 @@ static LONG WINAPI HkRegQueryValueExA(HKEY h, LPCSTR name, LPDWORD r, LPDWORD ty
     if (!id) return g_oRegQueryValueExA(h, name, r, type, data, cb);
     if (!g_cfg.portableRegistry) return ERROR_FILE_NOT_FOUND;    // renderer-only virtual key
     const VValue* v = VValueFor(id, name);
-    if (!v) return ERROR_FILE_NOT_FOUND;
+    if (!v) return RealValue(id, name, type, data, cb);
+    if (!_stricmp(v->entry, "D3DDevice") && g_cfg.d3dDevice >= 0) {
+        DWORD x = (DWORD)g_cfg.d3dDevice;
+        VLogOnce(v->entry, "from d3dDevice= in HPFrameFix.ini");
+        return ServeValue(REG_DWORD, &x, 4, type, data, cb);
+    }
     char text[512] = {};
-    GetPrivateProfileStringA("Registry", v->entry, "", text, sizeof(text), g_regIni);
-    if (!text[0]) { VLogOnce(v->entry, v->unset); return ERROR_FILE_NOT_FOUND; }
+    if (g_regIniOld) GetPrivateProfileStringA("Registry", v->entry, "", text, sizeof(text), g_regIni);
+    if (!text[0]) {
+        LONG rr = RealValue(id, name, type, data, cb);
+        VLogOnce(v->entry, rr == ERROR_SUCCESS || rr == ERROR_MORE_DATA ? "from the Windows registry" : v->unset);
+        return rr;
+    }
     if (thrash) {                    // the game's own spelling, so "D3DA.DLL" or "d3da" works too
         const char* d = ThrashName(text);
         if (!d) { VLogOnce(v->entry, "isn't one of the game's renderers - software used"); return ERROR_FILE_NOT_FOUND; }
         lstrcpynA(text, d, sizeof(text));
     }
-    VLogOnce(v->entry, "read");
+    VLogOnce(v->entry, "read from HPFrameFix_registry.ini (a file of an earlier version)");
     if (v->type == REG_DWORD) {
         DWORD x = (DWORD)strtoul(text, nullptr, 0);
         return ServeValue(REG_DWORD, &x, 4, type, data, cb);
@@ -4092,7 +4083,11 @@ static void InstallPortableRegistry() {
     bool ok = true;
     for (int i = 0; i < 4; i++) ok &= PatchPointer(slots[i], hooks[i], nullptr);
     if (!ok) Logf("registry: patch FAILED - Windows registry used\n");
-    else if (g_cfg.portableRegistry) Logf("registry: %s\n", g_regIni);
+    else if (g_cfg.portableRegistry) {
+        g_regIniOld = GetFileAttributesA(g_regIni) != INVALID_FILE_ATTRIBUTES;
+        Logf("registry: answered by the mod (renderer=, d3dDevice=; the rest from the Windows registry if it's there)%s\n",
+             g_regIniOld ? "; HPFrameFix_registry.ini of an earlier version is still read" : "");
+    }
     else Logf("registry: Windows registry\n");
     if (ok && g_rendererDll[0]) Logf("renderer: %s\n", g_rendererDll);
 }

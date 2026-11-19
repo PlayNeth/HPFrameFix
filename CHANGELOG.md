@@ -14,6 +14,11 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.1
+
+- **No `HPFrameFix_registry.ini` any more.** The game's registry values are answered without a file of their own, as HSFrameFix does: the renderer from `renderer=`, the display adapter from the new `d3dDevice=` (`-1` = not set here), and any other value from the Windows registry if it's there. A file left by 0.1.0 is still read, ahead of the Windows registry, and can be deleted.
+- With `renderer=` empty, a renderer set in the Windows registry is passed to the game as it is.
+
 ## 0.1.0: first release
 
 ### Frame rate and timing
