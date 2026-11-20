@@ -89,6 +89,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 - **Speed effects,** growing to full strength at 320 km/h:
   - **speed blur** (Direct3D), from 90 km/h: the picture blurs outwards towards the screen's edges, while the middle, the HUD and the mirror stay sharp. In the cockpit view the dashboard blurs along with the road;
   - **camera shake** (every renderer), from 90 km/h: the view shakes slightly. It stands still while the game is paused.
+- **Projected headlights** (night races, the game's projected headlight option) reach further, with a wider and softer beam (`projLightReach`, `projLightWidth`, `projLightBrightness`).
 - **A looser low camera:** the low chase camera no longer copies every bump and twitch of the car. It follows the car's turns, pitch and roll with a lag, swinging round the car in turns and riding out bumps (`lowCamLoose`), and its view widens with speed, by up to 8 degrees (`lowCamSpeedFov`).
 
 ### Sound
@@ -129,6 +130,9 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `airDrag` | `0` | Drag on cars in the air: `0` = none, `1` = the game's. |
 | `speedBlur` | `1.0` | Strength of the speed blur; `0` = off. |
 | `cameraShake` | `1.0` | Strength of the camera shake; `0` = off. |
+| `projLightReach` | `1.5` | Projected headlights: how far they reach, x the game's. |
+| `projLightWidth` | `1.3` | Projected headlights: how wide the beam is, x the game's. |
+| `projLightBrightness` | `0.75` | Projected headlights: how bright the light is, x the game's. |
 | `lowCamLoose` | `1.0` | How loosely the low camera follows the car; `0` = the game's rigid camera. |
 | `lowCamSpeedFov` | `8` | Degrees the low camera's view widens by at speed; `0` = fixed. |
 | `fixSound` | `1` | Sound driver fix. |
