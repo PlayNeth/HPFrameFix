@@ -295,6 +295,11 @@ namespace hp {
         { 0x4BC3F2, "\xE8\x09\x67\xFC\xFF", 5 },        // main view: call the HUD 0x482B00
         { 0x4DBEE0, "\x5D\x5E\x5A\x59\x5B\xC3", 6 },  // ViewSetup: its tail (pop ebp..ebx / ret)
         { 0x482CA3, "\xE8\x98\x65\x00\x00\x83\x3D\x10\x3D\x7A\x00\x00", 12 },
+        { 0x42D267, "\xC7\x80\xC8\x06\x00\x00\x00\x00\x20\x41\xC7\x80\xCC\x06\x00\x00\x00\x00\x20\x42"
+                    "\xC7\x80\xD0\x06\x00\x00\xB0\xB0\xB0\xB0", 30 },  // player's projected light: 10 m, 40 m, colour
+        { 0x42D2DA, "\xC7\x80\xC8\x06\x00\x00\x00\x00\xA0\x41\xC7\x80\xCC\x06\x00\x00\x00\x00\x70\x42"
+                    "\xC7\x80\xD0\x06\x00\x00\xE0\xE0\xE0\xE0", 30 },  // other cars': 20 m, 60 m, colour
+        { 0x41A603, "\xD9\x5D\xEC\x8B\x45\xEC\xA9\xFF\xFF\xFF\x7F", 11 },  // light space z stored, then tested
         { 0x4264A6, "\x89\xC8\xE8\xF3\xDE\xFF\xFF", 7 },  // camera update, types 4 and 6 (low): call 0x4243A0
         { 0x422F67, "\xC7\x80\x10\x01\x00\x00\x00\x00\x00\x00", 10 },  // type 4 setup: cam+0x110 = 0  // HUD: cockpit picture, then cmp [0x7A3D10],0
         { 0x412EB5, "\xD8\x99\xF4\x04\x00\x00", 6 },  // speedometer: fcomp [ecx+0x4F4] (car speed, m/s)
@@ -320,6 +325,9 @@ struct Config {
     float carLodScale      = 2.0f;  // car model LOD switch distances x this (1 = the game's)
     int   carDrawDistance  = 0;     // m; cars further away aren't drawn (0 = the game's 300)
     int   fullDetailCars   = 1;     // no car is dropped to a lower detail model/texture set
+    float projLightReach   = 1.5f;  // projected headlights: their distances x this (1 = the game's)
+    float projLightBrightness = 0.75f; // projected headlights: their colour x this
+    float projLightWidth   = 1.3f;  // projected headlights: their beam this much wider
     float airDrag          = 0.0f;  // air drag on cars in the air, x the game's (1 = the game's, 0 = none)
     float speedBlur        = 1.0f;  // Direct3D: radial blur at the screen's edges at speed (0 = off)
     float cameraShake      = 1.0f;  // the view shakes slightly at speed (0 = off)
@@ -494,6 +502,13 @@ static const char kIniText[] =
     "; The game drops the farthest cars to lower detail once a small budget is used up,\n"
     "; even on high car detail. 1 = no budget, every car keeps its detail\n"
     "fullDetailCars=1\n"
+    "\n"
+    "; Night races with projected headlights (the game's graphics options): how far they\n"
+    "; reach (x the game's: 10 m before they start to fade and 40 m to nothing for your\n"
+    "; car), how bright their light is, and how wide the beam is. 1 = the game's\n"
+    "projLightReach=1.5\n"
+    "projLightBrightness=0.75\n"
+    "projLightWidth=1.3\n"
     "\n"
     "\n"
     "[Widescreen]\n"
@@ -737,6 +752,9 @@ static void LoadConfig() {
         else if (!_stricmp(key, "carLodScale"))          g_cfg.carLodScale = (float)atof(val);
         else if (!_stricmp(key, "carDrawDistance"))      g_cfg.carDrawDistance = atoi(val);
         else if (!_stricmp(key, "fullDetailCars"))       g_cfg.fullDetailCars = atoi(val);
+        else if (!_stricmp(key, "projLightReach"))       g_cfg.projLightReach = (float)atof(val);
+        else if (!_stricmp(key, "projLightBrightness"))  g_cfg.projLightBrightness = (float)atof(val);
+        else if (!_stricmp(key, "projLightWidth"))       g_cfg.projLightWidth = (float)atof(val);
         else if (!_stricmp(key, "airDrag"))              g_cfg.airDrag = (float)atof(val);
         else if (!_stricmp(key, "speedBlur"))            g_cfg.speedBlur = (float)atof(val);
         else if (!_stricmp(key, "cameraShake"))          g_cfg.cameraShake = (float)atof(val);
@@ -3058,6 +3076,74 @@ static void InstallLowCam() {
     if (g_cfg.lowCamSpeedFov > 0)
         Logf("low camera: view up to %.1f degrees wider with speed%s\n", g_cfg.lowCamSpeedFov,
              g_cfg.widescreen && g_cfg.wsFixFOV ? "" : " - off, it needs widescreen and wsFixFOV");
+}
+
+// ---------------------------------------------------------------------------
+// Projected headlights (the game's projtex [0x6FBC3C] = 1, at night: [0x7A3A60]
+// set). Each car's light (car+0x664, set up at 0x42D2xx) gets, in that mode,
+// a distance where it starts to fade and one where it's gone, and a colour:
+// the player's 10 m / 40 m / 0xB0B0B0B0 (immediates at 0x42D26D / 0x42D277 /
+// 0x42D281), the others' 20 m / 60 m / 0xE0E0E0E0 (0x42D2E0 / 0x42D2EA /
+// 0x42D2F4). Their light is a pass of its own over the track, the light's
+// texture times that colour, mapped by the light's frustum: 0x41A550 puts
+// every vertex into the light's space (x, y, z at [ebp-0x1C..-0x14] once
+// 0x41A603 has added the light's position) and works out from them the
+// texture's u, v ((x/z + 1) / 2), which side of the frustum it lies on, and
+// its brightness. projLightReach scales both distances, projLightBrightness
+// the colours, and projLightWidth widens the beam: x and y are divided by it
+// right there (0x41A606, "mov eax,[ebp-0x14] / test eax,0x7FFFFFFF", whose
+// work the stub then does), so the texture, the frustum sides and the
+// brightness all see a wider light - only in this mode.
+// ---------------------------------------------------------------------------
+extern "C" { float g_projInvW = 1.0f; }
+extern "C" void ProjWidthStub();
+asm(
+    ".globl _ProjWidthStub\n"
+    "_ProjWidthStub:\n"
+    "    cmpl $1, 0x6FBC3C\n"            // projected headlights
+    "    jne 1f\n"
+    "    cmpl $0, 0x7A3A60\n"            // at night
+    "    je 1f\n"
+    "    flds -0x1C(%ebp)\n"
+    "    fmuls _g_projInvW\n"
+    "    fstps -0x1C(%ebp)\n"
+    "    flds -0x18(%ebp)\n"
+    "    fmuls _g_projInvW\n"
+    "    fstps -0x18(%ebp)\n"
+    "1:  movl -0x14(%ebp), %eax\n"
+    "    testl $0x7FFFFFFF, %eax\n"
+    "    ret\n");
+static DWORD ScaleColour(DWORD c, float k) {
+    DWORD r = 0;
+    for (int i = 0; i < 32; i += 8) {
+        float v = ((c >> i) & 0xFF) * k + 0.5f;
+        r |= (DWORD)(v > 255 ? 255 : v < 0 ? 0 : v) << i;
+    }
+    return r;
+}
+static void InstallProjLights() {
+    if (!g_knownExe) return;
+    float reach = g_cfg.projLightReach, bright = g_cfg.projLightBrightness, width = g_cfg.projLightWidth;
+    reach  = !(reach > 0) ? 1 : reach > 4 ? 4 : reach;
+    bright = !(bright >= 0) ? 1 : bright > 2 ? 2 : bright;
+    width  = !(width > 0) ? 1 : width > 3 ? 3 : width;
+    bool ok = true;
+    if (reach != 1.0f) {
+        static const DWORD kDist[4] = { 0x42D26D, 0x42D277, 0x42D2E0, 0x42D2EA };
+        for (DWORD a : kDist) { float v = Rd<float>(a) * reach; ok &= PatchBytes(a, &v, 4); }
+    }
+    if (bright != 1.0f) {
+        static const DWORD kCol[2] = { 0x42D281, 0x42D2F4 };
+        for (DWORD a : kCol) { DWORD v = ScaleColour(Rd<DWORD>(a), bright); ok &= PatchBytes(a, &v, 4); }
+    }
+    if (width != 1.0f) {
+        g_projInvW = 1.0f / width;
+        static const BYTE nop3[3] = { 0x90, 0x90, 0x90 };
+        ok &= PatchRel32(0x41A606, 0xE8, (void*)&ProjWidthStub) && PatchBytes(0x41A60B, nop3, 3);
+    }
+    if (reach == 1.0f && bright == 1.0f && width == 1.0f) { Logf("projected headlights: the game's\n"); return; }
+    Logf("projected headlights: reach x%.2f, brightness x%.2f, width x%.2f: %s\n", reach, bright, width,
+         ok ? "on" : "patch FAILED");
 }
 
 static void InstallSpeedEffects() {
@@ -5537,6 +5623,7 @@ BOOL APIENTRY DllMain(HMODULE h, DWORD reason, LPVOID reserved) {
         InstallAirDrag();
         InstallSpeedEffects();
         InstallLowCam();
+        InstallProjLights();
         InstallCloseFix();
         InstallWidescreen();
         InstallSoftStandingsBox();
