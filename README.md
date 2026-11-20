@@ -64,7 +64,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 ### Widescreen
 
-- **Hor+ view:** the 4:3 view keeps its height and shows more at the sides. Rain and snow keep their own width.
+- **Hor+ view:** the 4:3 view keeps its height and shows more at the sides. Rain and snow keep their own width, the horizon reaches the screen's edges, and the cameras at the start and finish of a race keep their proportions.
 - **Every resolution listed** in the options, 32-bit modes included. The game remembers the full resolution, not just its width.
 - **HUD** in 4:3 proportions, with its panels at the screen's edges. The rear-view mirror fits its frame. The game's "Heads Up Display" screen, where the HUD's positions are changed, shows the boxes where they really are on the screen and keeps their shape.
 - **In-race menus:** the text keeps its 4:3 width on a wide screen.

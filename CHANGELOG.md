@@ -18,6 +18,8 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 - **Arrow keys in the in-race menus.** With `wsPauseMenu=1` on a wide screen, moving along the bottom row with the arrow keys left the pointer between the middle button and the side ones, over nothing. It now lands on the button the game moved to.
 - **Menu text fades keep their speed** (`menuAnimations`). The text fading in and out in the menus took one step per frame, so above 64 fps it ran too fast. It now takes the same time at any frame rate.
+- **No dark rectangle at the right of the sky on a wide screen.** The game draws the horizon as a strip in front of the camera that slides along as the camera turns, and on a wider screen its right end sometimes stopped short of the screen's edge. At night and on snow tracks, where the horizon glows over the scenery, a dark rectangle showed there. With the Hor+ view (`wsFixFOV`) the strip now continues past both edges.
+- **No stretched picture at the start and finish of a race.** The cameras that show the car before the start and after the finish set their own zoom, and on a wide screen their picture came out stretched sideways. With `wsFixFOV` they now keep the right proportions.
 
 ## 0.1.5
 

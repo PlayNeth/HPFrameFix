@@ -268,6 +268,18 @@ namespace hp {
         { 0x4DBD2B, "\x8B\x55\xE8\x89\xF0\x89\x75\xF8\xE8\xB8\x16\x02\x00", 13 },  // frustum call
         { 0x4DBD3F, "\xDB\x45\xF8", 3 },                 // fild [ebp-8]: horizontal half FOV
         { 0x4DBD48, "\xDB\x45\xF8", 3 },                 // fild [ebp-8]: vertical half FOV
+        { 0x47A90E, "\xE8\x6D\xED\xFF\xFF", 5 },        // horizon: call 0x479680
+        { 0x47A92D, "\xE8\x9E\xF0\xFF\xFF", 5 },        // horizon: call 0x4799D0
+        { 0x47A93D, "\xE8\x4E\xF2\xFF\xFF", 5 },        // horizon: call 0x479B90
+        { 0x4796FF, "\xE8\x6C\xFC\xFF\xFF", 5 },        // horizon rows: call 0x479370 (9 points each)
+        { 0x47971D, "\xE8\x4E\xFC\xFF\xFF", 5 },
+        { 0x479A51, "\xE8\x1A\xF9\xFF\xFF", 5 },
+        { 0x479A6F, "\xE8\xFC\xF8\xFF\xFF", 5 },
+        { 0x479D33, "\xE8\x38\xF6\xFF\xFF", 5 },
+        { 0x479D50, "\xE8\x1B\xF6\xFF\xFF", 5 },
+        { 0x479D6D, "\xE8\xFE\xF5\xFF\xFF", 5 },
+        { 0x4DBE8F, "\xD9\x05\xAC\x00\x56\x00\xD8\x48\x54", 9 },  // ViewSetup, a zoomed camera: x focal = half width * zoom
+        { 0x4DBEA4, "\xD9\x1D\x9C\x00\x56\x00", 6 },
         { 0x4A469E, "\x8B\x90\xE8\x1A\x7A\x00\x8B\x88\x5C\xE9\x55\x00\x8B\x98\xC0\x1A\x7A\x00", 18 },  // menu logos: step
         { 0x4A4C35, "\x66\x8B\x56\x46\x83\xC2\x02", 7 },                // menu background: fade phase += 2
         { 0x445F83, "\x8D\x7E\x14\x89\x3D\x64\x10\x66\x00", 9 },  // text fade in: +20 a frame
@@ -1705,6 +1717,11 @@ extern "C" int __cdecl AfterInstallRead(int ok) {
 // ---------------------------------------------------------------------------
 extern "C" void SoundServeStub();
 extern "C" void WsProjStub();
+extern "C" void WsZoomStub();
+extern "C" void HorizonRowStub();
+extern "C" void HorizonStub0();
+extern "C" void HorizonStub1();
+extern "C" void HorizonStub2();
 extern "C" void TexSizeStub();
 extern "C" void XfWrapCockpit();
 extern "C" void XfNeedlesStub();
@@ -2110,6 +2127,47 @@ asm(".text\n"
     "    call _SoundServeAfter\n"
     "    popal\n"
     "    ret\n"
+    // ViewSetup, a camera with a zoom (0x4DBEA4: fstp [0x56009C], 6 bytes): its x focal length
+    ".globl _WsZoomStub\n"
+    "_WsZoomStub:\n"
+    "    fstps 0x56009C\n"
+    "    pushal\n"
+    "    call _WsZoomFocal\n"
+    "    popal\n"
+    "    ret\n"
+    // a horizon row projected (the 7 calls to 0x479370): on the extra strips its points moved
+    ".globl _HorizonRowStub\n"
+    "_HorizonRowStub:\n"
+    "    cmpl $0, _g_hzShift\n"
+    "    je 1f\n"
+    "    pushal\n"
+    "    pushl %ebx\n"
+    "    pushl %eax\n"
+    "    call _HorizonRow\n"
+    "    addl $8, %esp\n"
+    "    movl %eax, 0x10(%esp)\n"     // the saved ebx
+    "    popal\n"
+    "1:  jmp *_g_fnHzRow\n"
+    // the horizon's parts (calls at 0x47A90E, 0x47A92D, 0x47A93D; eax = the horizon)
+    ".globl _HorizonStub0\n"
+    "_HorizonStub0:\n"
+    "    pushl $0x479680\n"
+    "    jmp 1f\n"
+    ".globl _HorizonStub1\n"
+    "_HorizonStub1:\n"
+    "    pushl $0x4799D0\n"
+    "    jmp 1f\n"
+    ".globl _HorizonStub2\n"
+    "_HorizonStub2:\n"
+    "    pushl $0x479B90\n"
+    "1:  pushal\n"
+    "    pushl %eax\n"                // the horizon
+    "    pushl 0x24(%esp)\n"          // the part
+    "    call _HorizonDraw\n"
+    "    addl $8, %esp\n"
+    "    popal\n"
+    "    addl $4, %esp\n"
+    "    ret\n"
     // ProjectionSetup 0x4DBD2B (replaces "mov edx,[ebp-0x18] / mov eax,esi /
     // mov [ebp-8],esi / call 0x4FD3F0"; esi = half the FOV in degrees): Hor+.
     // [ebp-8] gets the horizontal half FOV as a float (its fild is now a fld).
@@ -2499,6 +2557,22 @@ static void InstallCloseFix() {
 // keeps the game's own horizontal angle, and to keep the flakes' shape the
 // vertical one is narrowed instead (tan(v) / factor): the same snow over the
 // whole width, a little larger (wsWeather).
+// The horizon (0x47A880: its parts 0x479680, 0x4799D0 and 0x479B90, set up
+// from the track's .hrz files, with their own night and weather versions) is
+// a ring of 16 pieces laid out flat: each part draws 8 of them as a strip
+// facing the camera, its rows 9 points each (0x479500 lines them up, 0x479370
+// projects a row), the pieces as wide as a sixteenth of the ring's
+// circumference. The strip covers about 57 degrees either side of the view's
+// middle and slides by up to a piece as the camera turns (which pieces it
+// shows follows the heading, 0x479160), so its right end can be as close as
+// 45 degrees: enough for the game's 90 degree view, not for a wider one. At
+// night and on snow tracks the sky behind it is darker than the horizon's
+// glow, and the right side of the screen showed a dark rectangle where the
+// strip ended. So on a screen wider than 4:3 each part is drawn twice more,
+// its strip moved by its own length to the right and to the left (its rows'
+// points moved before they're projected), the pieces' textures moved by 8 as
+// well (the ring's rotation [0x55D1CC] + 0.5): three strips end to end, the
+// ring's next pieces either side, at the same depth.
 extern "C" { float g_wsHalfF = 45.0f, g_wsHalfVF = 36.0f; int g_wsVertI = 36; }
 static double WsFactor() {
     int w = Rd<int>(0x7CDAE0), h = Rd<int>(0x7CDAE4);
@@ -2529,6 +2603,47 @@ extern "C" int __cdecl WsHorPlus(int half, int vert) {
                   Rd<int>(0x7CDAE0), Rd<int>(0x7CDAE4), half * 2, hh * 2);
     }
     return (int)ceil(hh);
+}
+// A camera with a zoom of its own (cam+0x54: the cameras at the start and the
+// finish of a race) doesn't use the angle: after ProjectionSetup, ViewSetup
+// (0x4DBE8F) sets the float focal lengths [0x56009C] and [0x5600A0] to half
+// the view's width and height in pixels times the zoom. On a wider screen x
+// came out as many times longer as the screen is wider than 4:3, and the
+// picture was stretched. x is divided by that factor, which gives the 4:3
+// proportions, as WsHorPlus does with the angle.
+extern "C" void __cdecl WsZoomFocal() {
+    double f = WsFactor();
+    if (f > 1.0001) *(volatile float*)0x56009C = (float)(Rd<float>(0x56009C) / f);
+}
+// a horizon part (Watcom: eax = the horizon), then on a wider screen its two more strips
+static inline void HorizonCall(DWORD fn, DWORD hz) {
+    __asm__ volatile("call *%1" : "+a"(hz) : "r"(fn) : "memory", "cc");
+}
+extern "C" { int g_hzShift = 0; DWORD g_fnHzRow = 0x479370; }
+static int g_hzRow = 0;                           // rows projected so far in this drawing of the part
+extern "C" void __cdecl HorizonDraw(DWORD fn, DWORD hz) {
+    HorizonCall(fn, hz);
+    if (WsFactor() <= 1.0001) return;
+    volatile float* rot = (volatile float*)0x55D1CC;
+    float save = *rot;
+    *rot = save + 0.5f;
+    g_hzShift = 1;  g_hzRow = 0; HorizonCall(fn, hz);
+    g_hzShift = -1; g_hzRow = 0; HorizonCall(fn, hz);
+    g_hzShift = 0;
+    *rot = save;
+}
+// a row's points (0x479370: eax = count, ebx = 3 floats each) moved by the strip's
+// length times g_hzShift, in a copy: the game's own points stay as they are. The
+// length comes from the part's first row, the strip's edge, all 9 points set: in
+// 0x479B90 the other two rows are worked out piece by piece, 8 points, the 9th
+// never written.
+extern "C" const float* __cdecl HorizonRow(int n, const float* p) {
+    static float row[9 * 3], d[3];
+    if (n != 9) return p;
+    if (g_hzRow++ == 0)
+        for (int c = 0; c < 3; c++) d[c] = (p[8 * 3 + c] - p[c]) * (float)g_hzShift;
+    for (int i = 0; i < 9 * 3; i++) row[i] = p[i] + d[i % 3];
+    return row;
 }
 // ---------------------------------------------------------------------------
 // 2D pictures drawn with a transform. Between XfBegin(mode) and XfEnd the
@@ -4239,6 +4354,17 @@ static void InstallWidescreen() {
         static const BYTE fld[3] = { 0xD9, 0x45, 0xF8 };
         bool ok = PatchBytes(0x4DBD3F, fld, 3) && PatchBytes(0x4DBD48, fld, 3) && PatchBytes(0x4DBD2B, b, 13);
         Logf("widescreen: Hor+ 3D view %s\n", ok ? "on" : "patch FAILED");
+        if (ok) {
+            static const BYTE nop = 0x90;
+            Logf("widescreen: Hor+ for the cameras at the race's start and finish: %s\n",
+                 PatchRel32(0x4DBEA4, 0xE8, (void*)&WsZoomStub) && PatchBytes(0x4DBEA9, &nop, 1) ? "on" : "patch FAILED");
+            static const DWORD rows[] = { 0x4796FF, 0x47971D, 0x479A51, 0x479A6F, 0x479D33, 0x479D50, 0x479D6D };
+            bool hz = true;
+            for (DWORD a : rows) hz = hz && PatchRel32(a, 0xE8, (void*)&HorizonRowStub);
+            hz = hz && PatchRel32(0x47A90E, 0xE8, (void*)&HorizonStub0) && PatchRel32(0x47A92D, 0xE8, (void*)&HorizonStub1) &&
+                 PatchRel32(0x47A93D, 0xE8, (void*)&HorizonStub2);
+            Logf("widescreen: horizon extended to the screen's edges: %s\n", hz ? "on" : "patch FAILED");
+        }
     }
 }
 
