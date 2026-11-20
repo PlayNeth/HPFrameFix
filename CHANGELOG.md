@@ -14,6 +14,11 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.6
+
+- **Arrow keys in the in-race menus.** With `wsPauseMenu=1` on a wide screen, moving along the bottom row with the arrow keys left the pointer between the middle button and the side ones, over nothing. It now lands on the button the game moved to.
+- **Menu text fades keep their speed** (`menuAnimations`). The text fading in and out in the menus took one step per frame, so above 64 fps it ran too fast. It now takes the same time at any frame rate.
+
 ## 0.1.5
 
 - **HD cars with the software renderer.** `maxTextureSize` was meant to stay within what the renderer can draw, but that check never worked, so 512 textures were loaded with every renderer and the software renderer drew HD cars as stripes. Textures above 256 are now loaded with the Direct3D renderer only; the others keep the game's 256.

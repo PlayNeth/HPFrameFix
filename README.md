@@ -108,7 +108,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `interpolate` | `1` | Smooth frames at the refresh rate; `0` = the game's 64 fps. |
 | `targetFPS` | `-1` | `-1` = v-sync, else the refresh rate; `0` = no limit; `N` = N fps. |
 | `interpDelay` | `1.0` | Raise to `1.5` if you see hitches. |
-| `menuAnimations` | `1` | The menus' drifting logos, background fade, spark and glow keep their speed at any frame rate. |
+| `menuAnimations` | `1` | The menus' drifting logos, background fade, spark, glow and text fades keep their speed at any frame rate. |
 | `renderer` | `d3d` | `d3d`, `software`, `voodoo`, `voodoo2`, a renderer DLL name, or empty for the game's own setting. |
 | `d3dDevice` | `-1` | Direct3D's display adapter: `0` = primary, `1` = second; `-1` = the Windows registry's, else the primary. |
 | `widescreen` | `1` | Master switch for every widescreen setting. |

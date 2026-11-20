@@ -123,7 +123,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.5"
+#define HPFF_VERSION "0.1.6"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -270,6 +270,9 @@ namespace hp {
         { 0x4DBD48, "\xDB\x45\xF8", 3 },                 // fild [ebp-8]: vertical half FOV
         { 0x4A469E, "\x8B\x90\xE8\x1A\x7A\x00\x8B\x88\x5C\xE9\x55\x00\x8B\x98\xC0\x1A\x7A\x00", 18 },  // menu logos: step
         { 0x4A4C35, "\x66\x8B\x56\x46\x83\xC2\x02", 7 },                // menu background: fade phase += 2
+        { 0x445F83, "\x8D\x7E\x14\x89\x3D\x64\x10\x66\x00", 9 },  // text fade in: +20 a frame
+        { 0x445CC3, "\x8D\x59\x0A\x89\x1D\x88\x10\x66\x00", 9 },  // text fade in: +10 a frame
+        { 0x445C99, "\x8D\x7E\xF1\x89\x3D\x88\x10\x66\x00", 9 },  // text fade out: -15 a frame
         { 0x4A4D1B, "\xA1\x28\xEB\x55\x00\x85\xC0\x74\x0B\x8D\x50\xFF", 12 },  // menu spark: countdown
         { 0x4516A0, "\x51\x52\x55", 3 },                 // free disk space test: push ecx / push edx / push ebp
         { 0x4DF87E, "\x6A\x00\x53\x2E\xFF\x15\x08\x46\x53\x00", 10 },  // TerminateThread(h, 0)
@@ -405,8 +408,8 @@ static const char kIniText[] =
     "menuMaxFPS=-1\n"
     "\n"
     "; Keep the menus' frame-by-frame animations (the drifting logos, the spark\n"
-    "; and glow at the top left, the background fade) at their normal speed at\n"
-    "; any frame rate\n"
+    "; and glow at the top left, the background fade, the text fading in and out)\n"
+    "; at their normal speed at any frame rate\n"
     "menuAnimations=1\n"
     "\n"
     "\n"
@@ -2203,9 +2206,74 @@ struct TickSteps {
     }
 };
 extern "C" void __cdecl LogoSteps() { static TickSteps s; g_logoN = s.Take(); }
+// The menus' text fades (0x445AC0: [0x661088] up 10 a frame to 255, or down 15;
+// 0x445F50: [0x661064] up 20 a frame) were made for the menus' 64 fps. Here
+// each gets the 64ths of a second since its last frame instead, fractions
+// carried over, so a fade takes the same time at any frame rate.
+extern "C" int __cdecl FadeSteps(int id) {
+    static LONGLONG last[3]; static double acc[3];
+    if (id < 0 || id > 2) return 1;
+    LONGLONG now = Qpc();
+    double dt = last[id] ? (double)(now - last[id]) / (double)g_qpf.QuadPart : 1.0;
+    last[id] = now;
+    if (dt > 0.25 || dt < 0) { acc[id] = 0; return 1; }   // (the first frame of a fade)
+    acc[id] += dt * 64.0;
+    int n = (int)acc[id];
+    acc[id] -= n;
+    return n;
+}
 extern "C" void __cdecl GlowSteps() { static TickSteps s; g_glowN = s.Take(); }
 
 __asm__(
+    // the text fades: in place of "lea edi,[esi+0x14] / mov [0x661064],edi" (0x445F83),
+    // "lea ebx,[ecx+0xA] / mov [0x661088],ebx" (0x445CC3) and "lea edi,[esi-0xF] /
+    // mov [0x661088],edi" (0x445C99): the same per 64th of a second
+    ".globl _FadeInStub\n"
+    "_FadeInStub:\n"
+    "    pushl %eax\n"
+    "    pushl %ecx\n"
+    "    pushl %edx\n"
+    "    pushl $0\n"
+    "    call _FadeSteps\n"
+    "    addl $4, %esp\n"
+    "    imull $0x14, %eax, %edi\n"
+    "    addl %esi, %edi\n"
+    "    popl %edx\n"
+    "    popl %ecx\n"
+    "    popl %eax\n"
+    "    movl %edi, 0x661064\n"
+    "    ret\n"
+    ".globl _TextFadeInStub\n"
+    "_TextFadeInStub:\n"
+    "    pushl %eax\n"
+    "    pushl %ecx\n"
+    "    pushl %edx\n"
+    "    pushl $1\n"
+    "    call _FadeSteps\n"
+    "    addl $4, %esp\n"
+    "    imull $0xA, %eax, %ebx\n"
+    "    popl %edx\n"
+    "    popl %ecx\n"
+    "    popl %eax\n"
+    "    addl %ecx, %ebx\n"
+    "    movl %ebx, 0x661088\n"
+    "    ret\n"
+    ".globl _TextFadeOutStub\n"
+    "_TextFadeOutStub:\n"
+    "    pushl %eax\n"
+    "    pushl %ecx\n"
+    "    pushl %edx\n"
+    "    pushl $2\n"
+    "    call _FadeSteps\n"
+    "    addl $4, %esp\n"
+    "    imull $0xF, %eax, %eax\n"
+    "    movl %esi, %edi\n"
+    "    subl %eax, %edi\n"
+    "    popl %edx\n"
+    "    popl %ecx\n"
+    "    popl %eax\n"
+    "    movl %edi, 0x661088\n"
+    "    ret\n"
     // in place of the step at 0x4A469E (eax = logo * 4): ecx = x + n*dx, ebx = y + n*dy, edx = dx
     ".globl _LogoStepStub\n"
     "_LogoStepStub:\n"
@@ -2247,6 +2315,7 @@ __asm__(
     "    ret\n"
 );
 
+extern "C" void FadeInStub(); extern "C" void TextFadeInStub(); extern "C" void TextFadeOutStub();
 static void InstallMenuAnimations() {
     if (!g_knownExe || !g_cfg.menuAnimations) { Logf("menu animations: one step per frame, as in the game\n"); return; }
     static const BYTE skipLogo[2]  = { 0xEB, 0x13 };     // jmp 0x4A46B8, past the rest of the old step
@@ -2255,7 +2324,11 @@ static void InstallMenuAnimations() {
     bool ok = PatchRel32(0x4A469E, 0xE8, (void*)&LogoStepStub)  && PatchBytes(0x4A46A3, skipLogo, 2) &&
               PatchRel32(0x4A4C35, 0xE8, (void*)&GlowPhaseStub) && PatchBytes(0x4A4C3A, nop2, 2) &&
               PatchRel32(0x4A4D1B, 0xE8, (void*)&GlowCountStub) && PatchBytes(0x4A4D20, skipCount, 2);
-    Logf("menu animations: %s\n", ok ? "background logos, background fade, spark and glow step 64 times a second"
+    static const BYTE nop4[4] = { 0x90, 0x90, 0x90, 0x90 };
+    ok = ok && PatchRel32(0x445F83, 0xE8, (void*)&FadeInStub) && PatchBytes(0x445F88, nop4, 4) &&
+         PatchRel32(0x445CC3, 0xE8, (void*)&TextFadeInStub) && PatchBytes(0x445CC8, nop4, 4) &&
+         PatchRel32(0x445C99, 0xE8, (void*)&TextFadeOutStub) && PatchBytes(0x445C9E, nop4, 4);
+    Logf("menu animations: %s\n", ok ? "background logos, background fade, spark, glow and text fades step 64 times a second"
                                      : "patch FAILED");
 }
 
@@ -3722,7 +3795,11 @@ extern "C" void __cdecl PzLimitsCheck() {         // every frame (PreRender): th
 // test its items with (PzHit): U itself above the bottom row; in the bottom
 // row, whose side parts are drawn at the screen's edges, the x of whatever is
 // drawn under the pointer. So the pointer never jumps, and what's under it is
-// what reacts.
+// what reacts. The arrow keys don't move the stored x a little: they put it
+// on the next item's x (a jump of at least a tenth of the screen in one
+// frame, which the mouse never makes). Added to U that left the pointer
+// short of the bottom row's side parts, over nothing; so a jump puts U where
+// that item is drawn instead (PzUFromGame, the other way round from PzHit).
 static float g_pzU = 0; static int g_pzHitSet = 0;
 static inline float PzMid() { return g_pzW * 0.5f * (1.0f - g_pzK); }   // where the middle block starts
 static inline bool PzBottomRow() { return Rd<int>(0x5F38F4) > (int)(g_pzH * 0.85f); }
@@ -3734,6 +3811,12 @@ static float PzHit(float U) {
     if (P > W - (W - r) * k - mid * 0.5f) return W - (W - P) / k;   // right part likewise
     return U < l ? l : U > r ? r : U;                         // middle part
 }
+static float PzUFromGame(float G) {
+    if (!g_pzZones || !PzBottomRow()) return G;
+    float W = g_pzW, k = g_pzK, mid = PzMid(), l = W * 0.3f, r = W * 0.7f;
+    float P = G < l ? G * k : G > r ? W - (W - G) * k : mid + G * k;   // where the game's x G is drawn
+    return (P - mid) / k;
+}
 static void PzLimitsFrame() {                     // every frame the menu is drawn
     volatile int* mn = (volatile int*)0x5F38E0; volatile int* mx = (volatile int*)0x5F38E8; volatile int* x = (volatile int*)0x5F38F0;
     if (g_pzLimOn && (*mn != g_pzLimSet[0] || *mx != g_pzLimSet[1])) g_pzLimOn = false;   // (the game's own now)
@@ -3741,7 +3824,9 @@ static void PzLimitsFrame() {                     // every frame the menu is dra
     int ext = (int)lrintf(g_pzW * 0.5f * (1.0f - g_pzK) / g_pzK);
     g_pzLimSet[0] = g_pzLimSave[0] - ext; g_pzLimSet[1] = g_pzLimSave[1] + ext;
     *mn = g_pzLimSet[0]; *mx = g_pzLimSet[1];
-    g_pzU += (float)(*x - g_pzHitSet);
+    int d = *x - g_pzHitSet;
+    if ((float)abs(d) >= g_pzW * 0.1f) g_pzU = PzUFromGame((float)*x);   // (an arrow key: onto the item)
+    else g_pzU += (float)d;
     if (g_pzU < (float)g_pzLimSet[0]) g_pzU = (float)g_pzLimSet[0];
     if (g_pzU > (float)g_pzLimSet[1]) g_pzU = (float)g_pzLimSet[1];
     g_pzHitSet = (int)lrintf(PzHit(g_pzU));
