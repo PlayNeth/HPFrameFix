@@ -123,7 +123,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.4"
+#define HPFF_VERSION "0.1.5"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -294,7 +294,7 @@ struct Config {
     float carLodScale      = 2.0f;  // car model LOD switch distances x this (1 = the game's)
     int   carDrawDistance  = 0;     // m; cars further away aren't drawn (0 = the game's 300)
     int   fullDetailCars   = 1;     // no car is dropped to a lower detail model/texture set
-    int   maxTextureSize   = 512;   // largest texture loaded (the game's 256; up to what the renderer allows)
+    int   maxTextureSize   = 512;   // largest texture loaded (the game's 256; more with Direct3D only)
     int   closeExits       = 1;     // closing the window (Alt+F4, window manager) ends the game
     int   widescreen       = 1;     // master switch for the ws* keys
     int   wsFixFOV         = 1;     // Hor+ 3D view
@@ -445,8 +445,9 @@ static const char kIniText[] =
     "alternatePixelCenter=1\n"
     "\n"
     "; Largest texture the game loads: a power of two (the game's own is 256, and 128 for\n"
-    "; tracks and other cars), never above what the renderer supports. This doesn't\n"
-    "; sharpen the original textures; it's for HD texture and car mods\n"
+    "; tracks and other cars). Above 256 with the Direct3D renderer only; the others\n"
+    "; can't draw larger ones. This doesn't sharpen the original textures; it's for HD\n"
+    "; texture and car mods\n"
     "maxTextureSize=512\n"
     "\n"
     "; Cars switch to their simpler models at the game's distances times this\n"
@@ -2323,21 +2324,22 @@ static void InstallCarDetail() {
 // 256. Callers' limits: 128 for a set loaded with the track (0x41DB10, with
 // the loading bar; 0x41DB7B), 256 for the
 // player's car and 128 for every other car (0x4B7D30). maxTextureSize raises
-// all of them; the result never exceeds the renderer's largest texture (THRASH
-// caps [0x7A3A5C]: +0x14 max width, +0x20 max height).
+// all of them - with the Direct3D renderer. What a renderer says of itself is
+// no help: _THRASH_about gives 256 as the largest texture for d3da.dll and
+// softtria.dll alike (+0x14 width, +0x20 height), and d3da.dll takes larger
+// ones all the same, where softtria.dll draws them as stripes (HD cars). So any
+// other renderer keeps the game's 256 (g_texBig, set as the renderer is loaded).
 // ---------------------------------------------------------------------------
 static int Pow2Floor(int v) { int p = 1; while (p * 2 <= v && p < (1 << 14)) p *= 2; return p; }
 static int g_texCfg = 256;
+static bool g_texBig = false;                     // the renderer DLL loaded last is the Direct3D one (HkLoadLibraryA)
 extern "C" int __cdecl TexCap() {
-    int cap = g_texCfg;
-    BYTE* caps = Rd<BYTE*>(0x7A3A5C);
-    if (caps && !IsBadReadPtr(caps + 0x14, 0x10)) {
-        int mw = *(int*)(caps + 0x14), mh = *(int*)(caps + 0x20);
-        int m = mw < mh ? mw : mh;
-        if (m >= 1 && m < cap) cap = Pow2Floor(m);
-    }
+    int cap = g_texBig ? g_texCfg : 256;          // (g_texCfg is 256 or more)
     static int logged = 0;
-    if (cap != logged) { logged = cap; LogfAsync("textures: up to %dx%d\n", cap, cap); }
+    if (cap != logged) {
+        logged = cap;
+        LogfAsync("textures: up to %dx%d%s\n", cap, cap, cap < g_texCfg ? " (this renderer takes no larger ones)" : "");
+    }
     return cap;
 }
 static void InstallTextureSize() {
@@ -2357,7 +2359,7 @@ static void InstallTextureSize() {
     bool ok = PatchRel32(0x49CEB9, 0xE9, (void*)&TexSizeStub) &&
               PatchBytes(0x41DB7B, lim, 5) && PatchBytes(0x4B7D54, lim, 5) &&
               (!g_cfg.fullDetailCars || PatchBytes(0x4B7D5B, lim, 5));
-    Logf("textures: up to %dx%d (track and %s cars too, within the renderer's limit): %s\n",
+    Logf("textures: up to %dx%d (track and %s cars too; 256 with any renderer but Direct3D): %s\n",
          g_texCfg, g_texCfg, g_cfg.fullDetailCars ? "all" : "your", ok ? "on" : "patch FAILED");
 }
 
@@ -3676,7 +3678,7 @@ extern "C" int __cdecl MnModeLookup(int w, int found) {
 // held between the limits [0x5F38E0]..[0x5F38E8] (x) as it's read (0x435310).
 // The pointer is drawn by the items' rule, so it's over what it points at -
 // which squeezes the whole width the mouse can have into the middle block.
-// So while an in-race menu is up (wsPauseMenu=1) the x limits are widened by
+// So while an in-race menu is up (wsPauseMenu=1 or 2) the x limits are widened by
 // what the block leaves at each side, counted in the game's own measure: the
 // pointer then reaches the screen's edges. PzLimitsOff puts them back.
 // Text: these menus take their letter sizes from the HUD's three (0x451530
@@ -3725,14 +3727,14 @@ static float g_pzU = 0; static int g_pzHitSet = 0;
 static inline float PzMid() { return g_pzW * 0.5f * (1.0f - g_pzK); }   // where the middle block starts
 static inline bool PzBottomRow() { return Rd<int>(0x5F38F4) > (int)(g_pzH * 0.85f); }
 static float PzHit(float U) {
-    if (!PzBottomRow()) return U;
+    if (!g_pzZones || !PzBottomRow()) return U;   // (wsPauseMenu=2: all of it is the middle block)
     float W = g_pzW, k = g_pzK, mid = PzMid(), P = mid + U * k;
     float l = W * 0.3f, r = W * 0.7f;             // (PzDecide's bounds)
     if (P < l * k + mid * 0.5f) return P / k;                 // left part, and its half of the gap
     if (P > W - (W - r) * k - mid * 0.5f) return W - (W - P) / k;   // right part likewise
     return U < l ? l : U > r ? r : U;                         // middle part
 }
-static void PzLimitsFrame() {                     // every frame the menu is drawn (zones only)
+static void PzLimitsFrame() {                     // every frame the menu is drawn
     volatile int* mn = (volatile int*)0x5F38E0; volatile int* mx = (volatile int*)0x5F38E8; volatile int* x = (volatile int*)0x5F38F0;
     if (g_pzLimOn && (*mn != g_pzLimSet[0] || *mx != g_pzLimSet[1])) g_pzLimOn = false;   // (the game's own now)
     if (!g_pzLimOn) { g_pzLimSave[0] = *mn; g_pzLimSave[1] = *mx; g_pzLimOn = true; g_pzU = (float)*x; g_pzHitSet = *x; }
@@ -3845,7 +3847,7 @@ extern "C" void __cdecl PauseXfBegin() {
     g_pzRigid = g_hudIn && g_hudW > 0 && g_hudW < W;
     g_pzPlain = false; g_pzCustomSeen = false;
     if (g_pzCustom) PzLimitsOff();
-    else if (g_pzZones) PzLimitsFrame();
+    else PzLimitsFrame();
     for (int i = 0; i < 2; i++) g_pzMark[i] = Rd<int>(kPzLists[i] + 4);
     g_mnXf = !g_pzZones;                          // (the frame comes first: left alone with zones)
     if (g_mnXf) MnClipNow(g_mnClipRect[0], g_mnClipRect[1], g_mnClipRect[2], g_mnClipRect[3]);
@@ -3863,8 +3865,10 @@ static bool g_pzPtrSub = false;
 static int g_pzPtrL = 0, g_pzPtrP = 0;
 extern "C" void __cdecl PzPtrBegin() {
     PzItemBegin(nullptr);
-    if (g_pzOn && g_pzCustom) { g_pzPlain = true; g_pzPending = false; g_mnXf = false; return; }
-    if (!g_pzOn || !g_pzZones) return;
+    if (!g_pzOn) return;
+    // (wsPauseMenu=2: the menu is clipped to the middle block; the pointer may leave it)
+    if (!g_pzZones && g_mnClip) g_mnClip(g_mnClipRect[0], g_mnClipRect[1], g_mnClipRect[2], g_mnClipRect[3]);
+    if (g_pzCustom) { g_pzPlain = true; g_pzPending = false; g_mnXf = false; return; }
     volatile int* gx = (volatile int*)0x5F38F0;
     g_pzPtrL = *gx;
     float W = g_pzW, k = g_pzK, P = PzMid() + (g_pzU + (float)(g_pzPtrL - g_pzHitSet)) * k;
@@ -3882,6 +3886,7 @@ extern "C" void __cdecl PzPtrEnd() {
         g_pzPtrSub = false;
     }
     PzItemEnd();
+    if (g_pzOn && !g_pzZones && g_mnClip) MnClipNow(g_mnClipRect[0], g_mnClipRect[1], g_mnClipRect[2], g_mnClipRect[3]);
 }
 extern "C" void __cdecl PauseXfEnd() {
     g_mnInset = false;
@@ -4578,6 +4583,7 @@ static HMODULE WINAPI HkLoadLibraryA(LPCSTR name) {
         const char* b = name;
         for (const char* q = name; *q; q++) if (*q == '\\' || *q == '/' || *q == ':') b = q + 1;
         g_softRenderer = !_strnicmp(b, "soft", 4);
+        g_texBig = !_strnicmp(b, "d3d", 3);
     }
     if (name && g_driversDir[0] && !strpbrk(name, "\\/:") && IsRendererDll(name)) {
         static char seen[8][24]; static int nSeen = 0;            // log each DLL once

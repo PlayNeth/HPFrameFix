@@ -78,7 +78,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 - **Renderer choice** in the INI (Direct3D, software, Voodoo, Voodoo2), and an optional folder for the renderer DLLs.
 - **Direct3D fog**, as the game has it on 3dfx cards.
-- **Textures up to 512×512**, for HD texture and car mods.
+- **Textures up to 512×512** with the Direct3D renderer, for HD texture and car mods.
 - **Car detail:** cars keep their detailed models further away, and no car is dropped to lower detail by the game's budget.
 
 ### Sound
@@ -113,9 +113,9 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `d3dDevice` | `-1` | Direct3D's display adapter: `0` = primary, `1` = second; `-1` = the Windows registry's, else the primary. |
 | `widescreen` | `1` | Master switch for every widescreen setting. |
 | `wsMenus` | `1` | Menus at the chosen resolution: `1` = 4:3 in the middle, `2` = stretched, `0` = 640×480. |
-| `wsPauseMenu` | `1` | In-race menus: `1` = frame over the screen, `2` = all in 4:3, `0` = stretched. |
+| `wsPauseMenu` | `1` | In-race menus: `1` = frame over the screen, `2` = all in 4:3 (the pointer still reaches the whole screen), `0` = stretched. |
 | `d3dFog` | `1` | Fog on Direct3D. |
-| `maxTextureSize` | `512` | Largest texture the game loads. |
+| `maxTextureSize` | `512` | Largest texture the game loads. Above 256 with Direct3D only. |
 | `fixSound` | `1` | Sound driver fix. |
 | `soundLatencyMs` | `40` | Raise it if you hear dropouts. |
 | `portableRegistry` | `1` | The game's registry settings come from the mod, so no registry entries are needed. |

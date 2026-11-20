@@ -14,6 +14,11 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.5
+
+- **HD cars with the software renderer.** `maxTextureSize` was meant to stay within what the renderer can draw, but that check never worked, so 512 textures were loaded with every renderer and the software renderer drew HD cars as stripes. Textures above 256 are now loaded with the Direct3D renderer only; the others keep the game's 256.
+- **Pointer with `wsPauseMenu=2`.** The pointer in the in-race menus was held inside the 4:3 middle block. It now reaches the whole screen, as with `wsPauseMenu=1`.
+
 ## 0.1.4
 
 - **HUD no longer squeezed by the custom-position screen.** With `wsHud` on a wide screen, the game's "Heads Up Display" screen took the narrowed boxes back into the HUD layout, where they were narrowed again on every visit, and the layout was saved: gauges in boxes too narrow, dials stretched tall, on 4:3 screens as well. The positions are now taken back through the same rule first, so a box ends up exactly where it was dragged. A layout that was already damaged has to be reset once: open that screen, press **Reset**, then **Done**.
