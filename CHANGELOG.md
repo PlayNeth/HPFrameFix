@@ -14,6 +14,12 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.4
+
+- **HUD no longer squeezed by the custom-position screen.** With `wsHud` on a wide screen, the game's "Heads Up Display" screen took the narrowed boxes back into the HUD layout, where they were narrowed again on every visit, and the layout was saved: gauges in boxes too narrow, dials stretched tall, on 4:3 screens as well. The positions are now taken back through the same rule first, so a box ends up exactly where it was dragged. A layout that was already damaged has to be reset once: open that screen, press **Reset**, then **Done**.
+- **The custom-position screen covers the whole screen.** The HUD pieces to drag are shown where they really are, not inside the 4:3 middle block, and the pointer lines up with them.
+- **In-race menu text at its 4:3 width.** With `wsPauseMenu` and `wsHud` on, the pause menu's letters were narrowed twice on a wide screen (to 0.75 of their width at 16:9). Text and buttons now come out as on a 4:3 screen.
+
 ## 0.1.3
 
 - **Sharp dashboard with `alternatePixelCenter`.** In the cockpit view the dashboard picture (pieces, needles, wheel) is no longer moved by the half pixel. The game already gives its pieces texture coordinates moved by half a texel, so the extra move blurred it. This also works with `widescreen=0` and `d3dFog=0`.

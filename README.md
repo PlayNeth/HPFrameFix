@@ -66,7 +66,8 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 - **Hor+ view:** the 4:3 view keeps its height and shows more at the sides. Rain and snow keep their own width.
 - **Every resolution listed** in the options, 32-bit modes included. The game remembers the full resolution, not just its width.
-- **HUD** in 4:3 proportions, with its panels at the screen's edges. The rear-view mirror fits its frame.
+- **HUD** in 4:3 proportions, with its panels at the screen's edges. The rear-view mirror fits its frame. The game's "Heads Up Display" screen, where the HUD's positions are changed, shows the boxes where they really are on the screen and keeps their shape.
+- **In-race menus:** the text keeps its 4:3 width on a wide screen.
 - **Cockpit view:** the dashboard picture keeps its shape, needles included.
 - **Loading screen** in 4:3 in the middle.
 - **Menus at the chosen resolution:** no switch to 640×480. The menus show in 4:3 in the middle (or stretched), with the intro and demo movies scaled with them.
@@ -136,6 +137,7 @@ All next to the `.asi`:
 
 - **Nothing changed:** the ASI loader isn't loading. Check its instructions for this game, and that `HPFrameFix.asi` is in the game's folder or the loader's `scripts` folder. With `logToFile=1`, a missing `HPFrameFix.log` confirms it.
 - **The log says the exe differs and the mod is off:** your `nfs3.exe` isn't the one under Requirements. Check its SHA-1. The mod leaves the game alone to be safe.
+- **HUD gauges squeezed, dials stretched tall (also at 4:3):** the HUD layout was damaged by opening the game's "Heads Up Display" screen on a wide screen with a version before 0.1.4. It's saved with your settings. Open that screen once, press **Reset**, then **Done**.
 - **Occasional hitches:** raise `interpDelay` to `1.5`.
 - **Tearing, or the frame rate runs too high:** turn on v-sync, or set `targetFPS` to your refresh rate.
 - **Dropouts in the sound:** raise `soundLatencyMs`.

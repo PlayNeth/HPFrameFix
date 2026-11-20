@@ -123,7 +123,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.3"
+#define HPFF_VERSION "0.1.4"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -244,6 +244,10 @@ namespace hp {
         { 0x4BC7AB, "\xE8\x20\xF6\xF8\xFF", 5 },        // RenderFrame: call the in-race menu's draw 0x44BDD0
         { 0x44A5DC, "\xFF\x53\x2C\x85\xC0", 5 },        // menu draw loop: call the item's draw [ebx+0x2C]; test eax, eax
         { 0x44BE03, "\xE8\x58\x8D\xFE\xFF", 5 },        // in-race menu: call the pointer's draw 0x434B60
+        { 0x459EBD, "\x8D\xBC", 2 }, { 0x459EC0, "\x74\xBC\x6F\x00", 4 },   // HUD positions: lea edi, [ecx+eax+0x6FBC74]
+        { 0x452055, "\xDB\x05\xC8\xDA\x7C\x00", 6 },                     // in-race menus, string width to 640ths: fild [0x7CDAC8]
+        { 0x451D37, "\xE8\x44\xF7\x07\x00", 5 },                         // in-race menus, the other measure: call 0x4D1480
+        { 0x4D06F0, "\x51\x56\x57\x55\x89\xE5\x83\xEC\x5C", 9 },         // a letter's quad: push ecx/esi/edi/ebp; mov ebp, esp; sub esp, 0x5C
         { 0x4D1340, "\x52\x55\x89\xE5\xF6\x05\x58\x3A\x7A\x00\x02", 11 },  // text flush: push edx/ebp; mov ebp, esp; test [0x7A3A58], 2
         { 0x4D724E, "\x6A\x00\x6A\x07\xFF\x15\x6C\xF9\x9E\x00", 10 },  // big menu pictures: setstate(7, 0) = texture filter off
         { 0x4A3422, "\xE8\x29\xBB\x01\x00", 5 },        // race: call SetVideoMode
@@ -1702,8 +1706,12 @@ extern "C" void XfWrapCockpit();
 extern "C" void XfNeedlesStub();
 extern "C" void HudModeStub();
 extern "C" void HudRectStub();
+extern "C" void HudFracStub();
 extern "C" { int g_hrPlayer, g_hrIdx, g_hrW, g_hrH; DWORD g_fnRectBody = 0x480915; }
 extern "C" { int g_hudW = 640; DWORD g_fnSetModeBody = 0x4BEF56; }
+static bool g_hudIn = false;                      // the HUD's sizes come from g_hudW (InstallHud)
+static bool g_pzMeasIn = false;                   // the in-race menus measure their strings by it too (InstallMenus)
+extern "C" { extern float g_pzMeasF; }
 extern "C" void MirrorRectStub();
 extern "C" void MirrorProjStub();
 extern "C" { int g_wsMirror = 0, g_mirrorLayout = 0; DWORD g_fnViewRectsTail = 0x4BE3D0, g_fnRectProj = 0x4BED20; }
@@ -1982,6 +1990,17 @@ asm(".text\n"
     "    pushl %edi\n"
     "    pushl %ebp\n"
     "    jmp *_g_fnSetModeBody\n"
+    // HUD positions being changed (0x459EBD: lea edi, [ecx+eax+0x6FBC74]; the
+    // item at [ebp-4]): its fractions taken back through the boxes' rule first
+    ".globl _HudFracStub\n"
+    "_HudFracStub:\n"
+    "    pushal\n"
+    "    pushl -4(%ebp)\n"
+    "    call _HudFracInverse\n"
+    "    addl $4, %esp\n"
+    "    popal\n"
+    "    leal 0x6FBC74(%ecx,%eax), %edi\n"
+    "    ret\n"
     // HUD box placer (0x480910: eax = player, edx = box, ebx = view w, ecx = h)
     ".globl _HudRectStub\n"
     "_HudRectStub:\n"
@@ -2886,6 +2905,7 @@ extern "C" void __cdecl HudUpdate() {
     if (hw <= 0) hw = 640;
     if (hw != g_hudW) LogfAsync("widescreen: HUD sized for %d wide (screen %dx%d)\n", hw, w, h);
     g_hudW = hw;
+    g_pzMeasF = (g_pzMeasIn && w > hw) ? (float)w / (float)hw : 1.0f;
 }
 // The boxes themselves (0x480910, 23 per player at 0x749758 + player * 0x170,
 // 16 bytes each: x0, y0, x1, y1) are layout fractions times the view's width
@@ -2893,6 +2913,7 @@ extern "C" void __cdecl HudUpdate() {
 // right or the middle by where the box's middle is (like High Stakes'
 // layout boxes in HSFrameFix); boxes nearly as wide as the view stay as
 // they are.
+static inline double HudZoneOff(double f0, double f1, double extra);
 extern "C" void __cdecl HudRectPost() {
     int W = g_hrW, H = g_hrH, sw = Rd<int>(0x7CDAC8), sh = Rd<int>(0x7CDACC);
     if (W <= 0 || H <= 0 || sw <= 0 || sh <= 0 || g_hrPlayer < 0 || g_hrPlayer > 1 || g_hrIdx < 0 || g_hrIdx >= 23) return;
@@ -2901,10 +2922,48 @@ extern "C" void __cdecl HudRectPost() {
     int* r = (int*)(0x749758 + g_hrPlayer * 0x170 + g_hrIdx * 16);
     double f0 = (double)r[0] / W, f1 = (double)r[2] / W;
     if (f1 - f0 > 0.9) return;
-    double w43 = W / k, extra = W - w43, c = (f0 + f1) * 0.5;
-    double off = c < 0.4 ? 0.0 : c > 0.6 ? extra : extra * 0.5;
+    double w43 = W / k, extra = W - w43;
+    double off = HudZoneOff(f0, f1, extra);
     r[0] = (int)lround(w43 * f0 + off);
     r[2] = (int)lround(w43 * f1 + off);
+}
+// The other way round. The HUD's positions can be changed in the game (the
+// in-race menu's "Heads Up Display": every box becomes something to drag),
+// and there the game works from the boxes as they are on the screen: each
+// drag item starts at its box (0x45CA..), and 0x459DB0 turns an item's
+// place back into the layout's fractions - x over the screen width - and
+// has the boxes laid out again. With the boxes moved and narrowed above,
+// that put the narrowed box into the layout, to be narrowed again: every
+// visit squeezed the boxes further, and the result was kept with the player's
+// settings (dials stretched tall, on 4:3 screens as well). So the fractions
+// 0x459DB0 has worked out ([item+0x44] = left, [item+0x4C] = right) are taken
+// back through the rule above before they go into the layout (0x459EBD): laid
+// out again, the box is exactly where the item was dragged to.
+static inline double HudZoneOff(double f0, double f1, double extra) {
+    double c = (f0 + f1) * 0.5;
+    return c < 0.4 ? 0.0 : c > 0.6 ? extra : extra * 0.5;
+}
+extern "C" void __cdecl HudFracInverse(BYTE* item) {
+    int sw = Rd<int>(0x7CDAC8), sh = Rd<int>(0x7CDACC);
+    if (!item || sw <= 0 || sh <= 0) return;
+    double k = sw * 3.0 / (sh * 4.0);
+    if (k <= 1.001) return;
+    float* fx0 = (float*)(item + 0x44); float* fx1 = (float*)(item + 0x4C);
+    double a = *fx0, b = *fx1;                        // the box on the screen, over the screen's width
+    if (b - a > 0.9) return;                          // (left as they are, both ways)
+    double w43 = sw / k, extra = sw - w43;
+    static const double kOff[3] = { 0.5, 0.0, 1.0 };  // middle, left, right
+    double g0 = 0, g1 = 0; bool found = false;
+    for (int i = 0; i < 3 && !found; i++) {
+        double off = extra * kOff[i];
+        g0 = (a * sw - off) / w43; g1 = (b * sw - off) / w43;
+        found = g1 - g0 <= 0.9 && fabs(HudZoneOff(g0, g1, extra) - off) < 0.5;
+    }
+    if (!found) {                                     // (a place no layout gives: the nearest side's rule)
+        double c = (a + b) * 0.5, off = c < 1.0 / 3 ? 0.0 : c > 2.0 / 3 ? extra : extra * 0.5;
+        g0 = (a * sw - off) / w43; g1 = (b * sw - off) / w43;
+    }
+    *fx0 = (float)g0; *fx1 = (float)g1;
 }
 // The rear-view mirror. Its frame is one of those boxes, so with the HUD in
 // 4:3 proportions it's narrower than before - but the picture inside is a 3D
@@ -2964,7 +3023,10 @@ static bool InstallHud() {
     ok &= PatchBytes(0x48AB47, f, 6) && PatchBytes(0x48ABFA, f, 6);
     ok &= PatchRel32(0x4BEF50, 0xE9, (void*)&HudModeStub);
     ok &= PatchRel32(0x480910, 0xE9, (void*)&HudRectStub);
+    static const BYTE nop2[2] = { 0x90, 0x90 };
+    ok &= PatchRel32(0x459EBD, 0xE8, (void*)&HudFracStub) && PatchBytes(0x459EC2, nop2, 2);
     ok &= PatchRel32(0x4BE8C4, 0xE8, (void*)&MirrorRectStub) && PatchRel32(0x4DBE0B, 0xE8, (void*)&MirrorProjStub);
+    g_hudIn = ok;
     return ok;
 }
 
@@ -3617,6 +3679,23 @@ extern "C" int __cdecl MnModeLookup(int w, int found) {
 // So while an in-race menu is up (wsPauseMenu=1) the x limits are widened by
 // what the block leaves at each side, counted in the game's own measure: the
 // pointer then reaches the screen's edges. PzLimitsOff puts them back.
+// Text: these menus take their letter sizes from the HUD's three (0x451530
+// picks [0x791B4C], [0x791B50] or [0x791B54], which the HUD setup works out
+// from the screen width at 0x484B7B), measure their strings with them and
+// place and size things by what they measure - a button is its text plus a
+// margin. The game's layout here is "everything times W/640", which the rule
+// above undoes; but with the HUD in 4:3 proportions those sizes already are
+// what a 4:3 screen has, and the letters (and the buttons around them) came
+// out narrowed twice. So with both on:
+//  - what the menus are told a string measures is its width over the factor
+//    (0x452020 turns pixels into 640ths with the screen width at 0x452055,
+//    which becomes the HUD's width; 0x451D37, the other way to measure, gets
+//    the factor on its result): narrowed with the rest, that is the string's
+//    real width again, so buttons and alignment come out as on a 4:3 screen;
+//  - a string's letters keep their size and spacing, and only the place the
+//    string starts is moved by the rule. For that each letter's quad is noted
+//    as it's asked for (0x4D06F0: where on the line, which line, how big),
+//    and letters that follow one another on a line are one string.
 static bool g_pzOn = false, g_pzZones = false, g_pzXfSaved = false;
 static float g_pzSave[4], g_pzK = 1, g_pzW = 0, g_pzH = 0;
 static bool g_pzLimOn = false;
@@ -3669,6 +3748,30 @@ static void PzLimitsFrame() {                     // every frame the menu is dra
 }
 static const DWORD kPzLists[2] = { 0x7F74C0, 0x81B4D0 };
 static int g_pzMark[2];
+extern "C" { int g_pzOnC = 0; DWORD g_fnGlyphBody = 0x4D06F6, g_fnStrWidth = 0x4D1480; float g_pzMeasF = 1.0f; }
+extern "C" void PzGlyphStub();
+extern "C" void PzMeasureStub();
+static bool g_pzRigid = false;                    // letters keep their size (the HUD's 4:3 sizes, on a wider screen)
+// The screen where the HUD's positions are changed is one of these menus, and
+// each thing to drag is an item (drawn by 0x45BCB0) that shows a piece of the
+// HUD where its box is on the screen. Those are left where they are (g_pzPlain,
+// for the one item), and while that screen is up (g_pzCustom: such an item was
+// in the menu's last frame) the pointer is too, with the mouse's own limits:
+// it is over a box when the game finds it over that box. The buttons keep to
+// the middle block's rule; the game takes them for a little wider than drawn.
+static bool g_pzPlain = false, g_pzCustom = false, g_pzCustomSeen = false;
+// which list and its next free vertex when the letter began; pen x and letter size (floats, kept as their bits:
+// nothing here may touch the FPU, the game has values on its stack), the line's y
+struct PzGlyph { int list, idx; DWORD xBits, sizeBits; int y; };
+static inline float PzF(DWORD bits) { float f; memcpy(&f, &bits, 4); return f; }
+static PzGlyph g_pzGlyph[1024]; static int g_pzGlyphN = 0;
+// a[0] = pen x (float), a[1] = the line's y, a[5] = "only measuring"
+extern "C" void __cdecl PzGlyphNote(const DWORD* a) {
+    int list = Rd<int>(0x840184);
+    if (a[5] || g_pzGlyphN >= 1024 || list < 0 || list > 1) return;
+    PzGlyph& r = g_pzGlyph[g_pzGlyphN++];
+    r.list = list; r.idx = Rd<int>(kPzLists[list] + 4); r.xBits = a[0]; r.sizeBits = Rd<DWORD>(0x84018C); r.y = (int)a[1];
+}
 static void PzDecide(float x, float y) {
     g_pzPending = false;
     if (y > g_pzH * 0.85f) {
@@ -3678,16 +3781,46 @@ static void PzDecide(float x, float y) {
 }
 // the letters added since the last time: moved like the item they belong to
 static void PzLetters() {
+    if (g_pzPlain) {                              // (left where they are)
+        for (int i = 0; i < 2; i++) g_pzMark[i] = Rd<int>(kPzLists[i] + 4);
+        g_pzGlyphN = 0;
+        return;
+    }
     for (int i = 0; i < 2; i++) {
         int cur = Rd<int>(kPzLists[i] + 4), mark = g_pzMark[i];
         g_pzMark[i] = cur;
         if (cur < -1 || mark > 0xFFF || cur >= mark) continue;       // (nothing new, or the list was emptied)
         if (g_pzPending) { const float* v = (const float*)(kPzLists[i] + 0x10 + mark * 32); PzDecide(v[0], v[1]); }
+        static unsigned char rigid[0x1000];
+        bool anyRigid = false;
+        if (g_pzRigid && g_pzGlyphN) {
+            memset(rigid, 0, sizeof rigid);
+            bool have = false; float x0 = 0, px = 0, py = 0, ps = 0;
+            for (int g = 0; g < g_pzGlyphN; g++) {
+                const PzGlyph& r = g_pzGlyph[g];
+                if (r.list != i) continue;
+                float x = PzF(r.xBits), y = (float)r.y, size = PzF(r.sizeBits);
+                float sz = have && ps > size ? ps : size;
+                if (!have || x < px - 0.5f || x - px > 40.0f * sz || fabsf(y - py) > 12.0f * sz) x0 = x;   // a new string
+                have = true; px = x; py = y; ps = size;
+                int after = cur;                                    // (a letter that made no quad - a space - has none to move)
+                for (int h = g + 1; h < g_pzGlyphN; h++) if (g_pzGlyph[h].list == i) { after = g_pzGlyph[h].idx; break; }
+                if (after != r.idx - 4) continue;
+                for (int k = r.idx; k > r.idx - 4; k--) {
+                    if (k <= cur || k > mark || k < 0 || k > 0xFFF) continue;
+                    float* v = (float*)(kPzLists[i] + 0x10 + k * 32);
+                    v[0] += g_mnOx - x0 * (1.0f - g_pzK);
+                    rigid[k] = 1; anyRigid = true;
+                }
+            }
+        }
         for (int k = cur + 1; k <= mark; k++) {
+            if (anyRigid && k >= 0 && k <= 0xFFF && rigid[k]) continue;
             float* v = (float*)(kPzLists[i] + 0x10 + k * 32);
             v[0] = v[0] * g_pzK + g_mnOx;
         }
     }
+    g_pzGlyphN = 0;
 }
 extern "C" void __cdecl PauseXfBegin() {
     g_pzOn = false; g_mnInset = false;
@@ -3708,7 +3841,11 @@ extern "C" void __cdecl PauseXfBegin() {
     g_mnSx = g_pzK; g_mnSy = 1.0f; g_mnOx = PzMid(); g_mnOy = 0.0f;
     g_pzZones = g_cfg.wsPauseMenu == 1;
     g_pzPending = false; g_pzOn = true;
-    if (g_pzZones) PzLimitsFrame();
+    g_pzGlyphN = 0; g_pzOnC = 1;
+    g_pzRigid = g_hudIn && g_hudW > 0 && g_hudW < W;
+    g_pzPlain = false; g_pzCustomSeen = false;
+    if (g_pzCustom) PzLimitsOff();
+    else if (g_pzZones) PzLimitsFrame();
     for (int i = 0; i < 2; i++) g_pzMark[i] = Rd<int>(kPzLists[i] + 4);
     g_mnXf = !g_pzZones;                          // (the frame comes first: left alone with zones)
     if (g_mnXf) MnClipNow(g_mnClipRect[0], g_mnClipRect[1], g_mnClipRect[2], g_mnClipRect[3]);
@@ -3720,12 +3857,13 @@ extern "C" void __cdecl PauseXfBegin() {
 // place on the screen the items' rule gives the mouse (always on the screen),
 // the wrappers only shrink the picture about that place, and afterwards the
 // stored x is the game's own again, plus whatever the mouse moved meanwhile.
-extern "C" void __cdecl PzItemBegin();
+extern "C" void __cdecl PzItemBegin(const BYTE* item);
 extern "C" void __cdecl PzItemEnd();
 static bool g_pzPtrSub = false;
 static int g_pzPtrL = 0, g_pzPtrP = 0;
 extern "C" void __cdecl PzPtrBegin() {
-    PzItemBegin();
+    PzItemBegin(nullptr);
+    if (g_pzOn && g_pzCustom) { g_pzPlain = true; g_pzPending = false; g_mnXf = false; return; }
     if (!g_pzOn || !g_pzZones) return;
     volatile int* gx = (volatile int*)0x5F38F0;
     g_pzPtrL = *gx;
@@ -3749,20 +3887,27 @@ extern "C" void __cdecl PauseXfEnd() {
     g_mnInset = false;
     if (!g_pzOn) return;
     g_pzOn = false; g_pzPending = false; g_mnXf = false;
+    g_pzOnC = 0;
+    g_pzPlain = false; g_pzCustom = g_pzCustomSeen;
     g_mnSx = g_pzSave[0]; g_mnSy = g_pzSave[1]; g_mnOx = g_pzSave[2]; g_mnOy = g_pzSave[3];
     g_mnClip(g_mnClipRect[0], g_mnClipRect[1], g_mnClipRect[2], g_mnClipRect[3]);
 }
 // an item's draw (0x44A5DC), and the pointer's (0x44BE03)
-extern "C" void __cdecl PzItemBegin() {
+extern "C" void __cdecl PzItemBegin(const BYTE* item) {
     if (!g_pzOn) return;
     g_pzPending = false; g_mnOx = PzMid();
     PzLetters();                                  // (letters from outside any item: the middle block)
+    if (item && *(const DWORD*)(item + 0x2C) == 0x45BCB0) {   // a HUD box to drag (the item is the one about to be drawn)
+        g_pzPlain = true; g_pzCustomSeen = true; g_mnXf = false;
+        return;
+    }
     g_pzPending = g_pzZones;
     g_mnXf = true;
 }
 extern "C" void __cdecl PzItemEnd() {
     if (!g_pzOn) return;
     PzLetters();
+    if (g_pzPlain) { g_pzPlain = false; g_mnXf = true; }
     g_pzPending = false; g_mnOx = PzMid(); g_mnOy = 0.0f;
 }
 // the text flush (0x4D1340): the letters are placed first, and then drawn as they are
@@ -3786,6 +3931,30 @@ extern "C" void MnFeStub();
 extern "C" void MnRaceStub();
 extern "C" void MnLookupStub();
 asm(".text\n"
+    // a string measured for the in-race menus (0x451D37: call 0x4D1480)
+    ".globl _PzMeasureStub\n"
+    "_PzMeasureStub:\n"
+    "    call *_g_fnStrWidth\n"
+    "    fmuls _g_pzMeasF\n"
+    "    ret\n"
+    // a letter's quad (0x4D06F0, jmp from its entry; [esp+4] on = its arguments):
+    // noted while an in-race menu is drawn, then its first six bytes and on
+    ".globl _PzGlyphStub\n"
+    "_PzGlyphStub:\n"
+    "    cmpl $0, _g_pzOnC\n"
+    "    je 1f\n"
+    "    pushal\n"
+    "    leal 0x24(%esp), %eax\n"
+    "    pushl %eax\n"
+    "    call _PzGlyphNote\n"
+    "    addl $4, %esp\n"
+    "    popal\n"
+    "1:  pushl %ecx\n"
+    "    pushl %esi\n"
+    "    pushl %edi\n"
+    "    pushl %ebp\n"
+    "    movl %esp, %ebp\n"
+    "    jmp *_g_fnGlyphBody\n"
     // RenderFrame's call of the in-race menu's draw (0x4BC7AB)
     ".globl _PauseMenuStub\n"
     "_PauseMenuStub:\n"
@@ -3802,7 +3971,9 @@ asm(".text\n"
     ".globl _PzItemStub\n"
     "_PzItemStub:\n"
     "    pushal\n"
+    "    pushl %ebx\n"
     "    call _PzItemBegin\n"
+    "    addl $4, %esp\n"
     "    popal\n"
     "    call *0x2c(%ebx)\n"
     "    pushal\n"
@@ -3913,8 +4084,15 @@ static void InstallMenus() {
     if (g_cfg.wsPauseMenu) {
         BYTE j[11] = { 0xE9, 0, 0, 0, 0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
         DWORD rel = (DWORD)&PzFlushStub - (0x4D1340 + 5); memcpy(j + 1, &rel, 4);
+        BYTE g[6] = { 0xE9, 0, 0, 0, 0, 0x90 };
+        rel = (DWORD)&PzGlyphStub - (0x4D06F0 + 5); memcpy(g + 1, &rel, 4);
         bool pz = ok && PatchRel32(0x44A5DC, 0xE8, (void*)&PzItemStub) && PatchRel32(0x44BE03, 0xE8, (void*)&PzPointerStub) &&
-                  PatchBytes(0x4D1340, j, 11) && PatchRel32(0x4BC7AB, 0xE8, (void*)&PauseMenuStub);
+                  PatchBytes(0x4D1340, j, 11) && PatchBytes(0x4D06F0, g, 6) && PatchRel32(0x4BC7AB, 0xE8, (void*)&PauseMenuStub);
+        if (pz && g_hudIn) {                      // (the HUD's letter sizes: strings measured to match)
+            DWORD var = (DWORD)&g_hudW;
+            g_pzMeasIn = PatchBytes(0x452057, &var, 4) && PatchRel32(0x451D37, 0xE8, (void*)&PzMeasureStub);
+            if (!g_pzMeasIn) pz = false;
+        }
         Logf("widescreen: in-race menus, %s: %s\n", g_cfg.wsPauseMenu == 2 ? "4:3 in the middle" : "frame over the screen, items in 4:3 proportions",
              pz ? "on" : "patch FAILED");
     }
