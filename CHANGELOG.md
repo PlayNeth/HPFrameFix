@@ -14,6 +14,10 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.3
+
+- **Sharp dashboard with `alternatePixelCenter`.** In the cockpit view the dashboard picture (pieces, needles, wheel) is no longer moved by the half pixel. The game already gives its pieces texture coordinates moved by half a texel, so the extra move blurred it. This also works with `widescreen=0` and `d3dFog=0`.
+
 ## 0.1.2
 
 - **Menu animations keep their speed** at any frame rate (`menuAnimations`, on by default). The logos drifting behind the menus, the cross-fade of the menu frame's background, and the spark running along the arc to the ball at the top left took one step per frame, so above 64 fps they ran too fast. They now take 64 steps a second, as under the game's own cap.

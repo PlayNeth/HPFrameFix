@@ -123,7 +123,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.2"
+#define HPFF_VERSION "0.1.3"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -2458,6 +2458,7 @@ typedef void (WINAPI *TDrawN_t)(int, void*);
 typedef int  (WINAPI *TClip_t)(int, int, int, int);
 static TDraw4_t g_oQuad; static TDraw3_t g_oTri; static TDrawN_t g_oFan; static TClip_t g_oClip;
 static int g_xfMode = 0, g_xfDepth = 0, g_xfW, g_xfH;
+static bool g_xfCockpit = false;                  // the cockpit picture (0x489240) is being drawn
 static float g_xfCx, g_xfCy, g_xfK;
 static const int kVtx = 32;
 static_assert(kVtx == 32, "TVERTEX");
@@ -2587,6 +2588,7 @@ static void WINAPI XfFan(int tris, void* verts) {
 static void FogPause(bool pause);
 extern "C" void __cdecl XfBegin(int mode) {
     if (g_xfDepth++) return;                      // nested: the outer mode stays
+    g_xfCockpit = mode == 2;
     FogPause(true);                               // 2D pictures: no fog
     if (!g_cfg.widescreen || (mode == 2 && !g_cfg.wsCockpit) || (mode == 1 && !g_cfg.wsLoading)) { g_xfMode = 0; return; }
     int w = Rd<int>(0x7CDAE0), h = Rd<int>(0x7CDAE4);
@@ -2606,6 +2608,7 @@ extern "C" void __cdecl XfBegin(int mode) {
 }
 extern "C" void __cdecl XfEnd() {
     if (!g_xfDepth || --g_xfDepth) return;
+    g_xfCockpit = false;
     FogPause(false);
     if (!g_xfMode) return;
     if (Rd<DWORD>(0x9EF94C) == (DWORD)&XfQuad) *(volatile DWORD*)0x9EF94C = (DWORD)g_oQuad;
@@ -3063,7 +3066,10 @@ static void PzDecide(float x, float y);
 // be at whole coordinates, where the game's 2D pictures are laid out for
 // pixels that start there. So every vertex on its way to the Direct3D
 // renderer is moved half a pixel up and left; pictures drawn 1:1 then land
-// texel on pixel.
+// texel on pixel. Not the cockpit picture (0x489240: dashboard pieces,
+// needles, wheel; g_xfCockpit): the game gives those pieces u and v already
+// moved by half a texel (0.5/256 to 1 + 0.5/256 for a whole 256 piece), so
+// they are texel on pixel as they come and the move would blur them.
 static bool g_apc = false;                        // on for the renderer loaded now
 // menuTexelInset: the in-race menus' pictures are laid out for 640x480, a texel
 // to a pixel. Enlarged for a bigger screen and filtered, a picture's outermost
@@ -3231,7 +3237,7 @@ static inline void MnXv(MnV& d, const void* s) {
     if (g_pzPending) PzDecide(((const float*)s)[0], ((const float*)s)[1]);
     memcpy(&d, s, 32);
     if (g_mnXf) { d.f[0] = d.f[0] * g_mnSx + g_mnOx; d.f[1] = d.f[1] * g_mnSy + g_mnOy; }
-    if (g_apc) { d.f[0] -= 0.5f; d.f[1] -= 0.5f; }
+    if (g_apc && !g_xfCockpit) { d.f[0] -= 0.5f; d.f[1] -= 0.5f; }
 }
 static inline int MnX(int x) { return (int)lrintf(x * g_mnSx + g_mnOx); }
 static inline int MnY(int y) { return (int)lrintf(y * g_mnSy + g_mnOy); }
@@ -3448,7 +3454,7 @@ static FARPROC WINAPI HkGetProcAddress(HMODULE m, LPCSTR name) {
         g_mnSoft = !_strnicmp(b, "soft", 4) || !_strnicmp(b, "null", 4);
         g_mnD3D = !_strnicmp(b, "d3d", 3); g_mnTex = nullptr;
         g_apc = g_cfg.alternatePixelCenter && g_mnD3D;
-        if (g_cfg.alternatePixelCenter) LogfAsync("pixel centre: %s - %s\n", b, g_apc ? "every vertex moved by (-0.5, -0.5)" : "left as it is (Direct3D only)");
+        if (g_cfg.alternatePixelCenter) LogfAsync("pixel centre: %s - %s\n", b, g_apc ? "every vertex moved by (-0.5, -0.5), the cockpit picture's left as they are" : "left as it is (Direct3D only)");
         if (g_mnSoft) LogfAsync("widescreen: %s - its menus %s\n", b, g_cfg.wsMenusSoft ? "scaled up frame by frame (wsMenusSoft)" : "stay 640x480");
     }
     struct W { const char* n; void** real; void* wr; };
@@ -3940,7 +3946,9 @@ static void InstallSoftStandingsBox() {
 }
 
 static void InstallWidescreen() {
-    if (g_knownExe && g_cfg.alternatePixelCenter && !InstallDrawWrappers()) Logf("pixel centre: patch FAILED\n");
+    // (the cockpit picture is told apart by the wrapper around its draw call, whether or not anything else wants that)
+    if (g_knownExe && g_cfg.alternatePixelCenter &&
+        !(InstallDrawWrappers() && PatchRel32(0x482CA3, 0xE8, (void*)&XfWrapCockpit))) Logf("pixel centre: patch FAILED\n");
     if (!g_knownExe || !g_cfg.widescreen) { Logf("widescreen: off\n"); return; }
     if (g_cfg.wsUnlockResolutions) {
         BYTE b[9] = { 0xE9, 0, 0, 0, 0, 0x90, 0x90, 0x90, 0x90 };
