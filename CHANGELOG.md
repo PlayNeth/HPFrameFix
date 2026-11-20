@@ -23,6 +23,9 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 The first build of the plus branch: 0.1.6, plus gameplay changes.
 
 - **No speed lost over jumps** (`airDrag`, `[Gameplay]` section). While a car is in the air the game slows it down with a drag of its own, so every jump cost a lot of speed. With `airDrag=0`, the default, every car (yours, the other racers, the police) keeps its speed through the air. `1` is the game's drag; values in between keep part of it.
+- **Speed effects** (`[Speed effects]` section). Both follow the speed of the car the camera follows, starting at `speedBlurFrom` (130 km/h) and `cameraShakeFrom` (90 km/h), and reaching full strength at `speedEffectsFull` (320 km/h).
+  - **Speed blur** (`speedBlur`, Direct3D renderer): the 3D picture is blurred outwards towards the screen's edges, while the middle stays sharp. The HUD and the rear-view mirror are drawn after it and stay sharp; in the cockpit view the dashboard is blurred along with the road. Off in split screen.
+  - **Camera shake** (`cameraShake`, every renderer): the 3D view shakes by a few pixels. It stands still while the game is paused.
 
 ## 0.1.6
 
