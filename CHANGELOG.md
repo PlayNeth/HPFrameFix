@@ -14,6 +14,12 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.6-plus
+
+The first build of the plus branch: 0.1.6, plus gameplay changes.
+
+- **No speed lost over jumps** (`airDrag`, `[Gameplay]` section). While a car is in the air the game slows it down with a drag of its own, so every jump cost a lot of speed. With `airDrag=0`, the default, every car (yours, the other racers, the police) keeps its speed through the air. `1` is the game's drag; values in between keep part of it.
+
 ## 0.1.6
 
 - **Arrow keys in the in-race menus.** With `wsPauseMenu=1` on a wide screen, moving along the bottom row with the arrow keys left the pointer between the middle button and the side ones, over nothing. It now lands on the button the game moved to.

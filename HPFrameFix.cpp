@@ -123,7 +123,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.6"
+#define HPFF_VERSION "0.1.6-plus"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -288,6 +288,8 @@ namespace hp {
         { 0x4A4D1B, "\xA1\x28\xEB\x55\x00\x85\xC0\x74\x0B\x8D\x50\xFF", 12 },  // menu spark: countdown
         { 0x4516A0, "\x51\x52\x55", 3 },                 // free disk space test: push ecx / push edx / push ebp
         { 0x4DF87E, "\x6A\x00\x53\x2E\xFF\x15\x08\x46\x53\x00", 10 },  // TerminateThread(h, 0)
+        { 0x4A25A3, "\xD9\x05\xB4\xC8\x53\x00", 6 },  // car physics: fld [0x53C8B4] (air drag factor)
+        { 0x53C8B4, "\x00\x00\x00\x3D", 4 },        // 0.03125
     };
 }
 
@@ -309,6 +311,7 @@ struct Config {
     float carLodScale      = 2.0f;  // car model LOD switch distances x this (1 = the game's)
     int   carDrawDistance  = 0;     // m; cars further away aren't drawn (0 = the game's 300)
     int   fullDetailCars   = 1;     // no car is dropped to a lower detail model/texture set
+    float airDrag          = 0.0f;  // air drag on cars in the air, x the game's (1 = the game's, 0 = none)
     int   maxTextureSize   = 512;   // largest texture loaded (the game's 256; more with Direct3D only)
     int   closeExits       = 1;     // closing the window (Alt+F4, window manager) ends the game
     int   widescreen       = 1;     // master switch for the ws* keys
@@ -559,6 +562,15 @@ static const char kIniText[] =
     "wsMenusSoft=0\n"
     "\n"
     "\n"
+    "[Gameplay]\n"
+    "\n"
+    "; Cars in the air are slowed down by a strong drag of the game's own, so every jump\n"
+    "; costs a lot of speed. This is that drag times this number, for every car (yours,\n"
+    "; the other racers, the police). 0 = none: a car keeps its speed through the air.\n"
+    "; 1 = the game's\n"
+    "airDrag=0\n"
+    "\n"
+    "\n"
     "[Sound]\n"
     "\n"
     "; The game's sound driver keeps cutting down how far ahead of playback it writes,\n"
@@ -678,6 +690,7 @@ static void LoadConfig() {
         else if (!_stricmp(key, "carLodScale"))          g_cfg.carLodScale = (float)atof(val);
         else if (!_stricmp(key, "carDrawDistance"))      g_cfg.carDrawDistance = atoi(val);
         else if (!_stricmp(key, "fullDetailCars"))       g_cfg.fullDetailCars = atoi(val);
+        else if (!_stricmp(key, "airDrag"))              g_cfg.airDrag = (float)atof(val);
         else if (!_stricmp(key, "maxTextureSize"))       g_cfg.maxTextureSize = atoi(val);
         else if (!_stricmp(key, "closeExits"))           g_cfg.closeExits = atoi(val);
         else if (!_stricmp(key, "widescreen"))           g_cfg.widescreen = atoi(val);
@@ -2473,6 +2486,28 @@ extern "C" int __cdecl TexCap() {
     }
     return cap;
 }
+// ---------------------------------------------------------------------------
+// Air drag. 0x4A2260, once per sim step for each car (from 0x4A2871): while
+// the car is in the air (word car+0x164 != 0; set by 0x42F4A2, cleared on
+// landing by 0x4A2630) it works out a drag from the car's horizontal velocity
+// (car+0xA4 x, +0xAC z) squared, weighted by how the car's axes (car+0xC0..)
+// line up with it, times the float at [0x53C8B4] (0.03125), and takes it off
+// both components (0x4A25E2, 0x4A260E). That float is read only there
+// (0x4A25A3), so that instruction reads airDrag x 0.03125 from here instead.
+// ---------------------------------------------------------------------------
+static float g_airDragK = 0.03125f;
+static void InstallAirDrag() {
+    if (!g_knownExe) return;
+    float k = g_cfg.airDrag;
+    if (!(k >= 0.0f)) k = 0.0f;                   // (negative or NaN: none)
+    if (k > 10.0f) k = 10.0f;
+    if (k == 1.0f) { Logf("air drag: the game's\n"); return; }
+    g_airDragK = 0.03125f * k;
+    BYTE b[6] = { 0xD9, 0x05 };                   // fld dword ptr [&g_airDragK]
+    float* at = &g_airDragK; memcpy(b + 2, &at, 4);
+    Logf("air drag: x%.2f: %s\n", k, PatchBytes(0x4A25A3, b, 6) ? "on" : "patch FAILED");
+}
+
 static void InstallTextureSize() {
     if (!g_knownExe) return;
     int want = g_cfg.maxTextureSize;
@@ -4920,6 +4955,7 @@ BOOL APIENTRY DllMain(HMODULE h, DWORD reason, LPVOID reserved) {
         InstallDiskSpaceFix();
         InstallCarDetail();
         InstallTextureSize();
+        InstallAirDrag();
         InstallCloseFix();
         InstallWidescreen();
         InstallSoftStandingsBox();
