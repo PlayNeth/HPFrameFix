@@ -86,6 +86,9 @@ Every feature has its own setting in `HPFrameFix.ini`.
 ### Gameplay
 
 - **No speed lost over jumps:** the game slows every car down with a strong drag while it's in the air, so every jump costs a lot of speed. That drag is gone by default, for every car, and `airDrag` can bring back any share of it.
+- **Speed effects,** growing to full strength at 320 km/h:
+  - **speed blur** (Direct3D), from 130 km/h: the picture blurs outwards towards the screen's edges, while the middle, the HUD and the mirror stay sharp. In the cockpit view the dashboard blurs along with the road;
+  - **camera shake** (every renderer), from 90 km/h: the view shakes slightly. It stands still while the game is paused.
 
 ### Sound
 
@@ -123,6 +126,8 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `d3dFog` | `1` | Fog on Direct3D. |
 | `maxTextureSize` | `512` | Largest texture the game loads. Above 256 with Direct3D only. |
 | `airDrag` | `0` | Drag on cars in the air: `0` = none, `1` = the game's. |
+| `speedBlur` | `1.0` | Strength of the speed blur; `0` = off. |
+| `cameraShake` | `1.0` | Strength of the camera shake; `0` = off. |
 | `fixSound` | `1` | Sound driver fix. |
 | `soundLatencyMs` | `40` | Raise it if you hear dropouts. |
 | `portableRegistry` | `1` | The game's registry settings come from the mod, so no registry entries are needed. |
