@@ -39,6 +39,15 @@
 //    replaces that wait with one idle call per frame (plus the optional
 //    limiter). menuMaxFPS keeps menus at or below 128 fps (auto: a divisor of
 //    the refresh rate), since menu animations are counted in 128 Hz ticks.
+//  - menuAnimations: the logos drifting behind the menus (0x4A4410, ten of
+//    them, each drawn with a trail of twelve copies) take one step per frame:
+//    at 0x4A4697 x [0x55E95C+i*4] += [0x7A1AE8+i*4] and y [0x7A1AC0+i*4] +=
+//    [0x7A1B10+i*4]. The step is taken once per two ticks instead (64 a
+//    second, the speed under the game's own cap) whatever the frame rate.
+//    The same for the menu frame's background (0x4A4C20): the phase of the
+//    cross-fade between its pictures (word [obj+0x46] += 2 at 0x4A4C39) and
+//    the countdown [0x55EB28] (300 to 0, minus 1 at 0x4A4D24) that times the
+//    spark running along the arc and the glow around the ball ("glw0").
 //  - Loading: the loading bar (0x495230) redraws and flips on every call.
 //    speedUpLoading only redraws it every loadScreenRenderMs; the skipped calls
 //    still run its callback poll (0x4E7630).
@@ -72,6 +81,10 @@
 //    in SilentPatch's SingleProcAffinity for NFS3, the main thread and every
 //    thread nfs3.exe / eacsnd.dll create (CreateThread import) run on the first
 //    core; the system's threads (DirectSound's mixer) and this mod's keep all.
+//    widenAffinity: a process that is on one core when the mod loads gets all
+//    cores back, and so does one that is pinned later (a wrapper's single-core
+//    option, checked once a second by AffinityWatch): the game's threads then
+//    move to the core the other one picked, the rest are free again.
 //  - fixSound: eacsnd.dll (sound driver, loaded at 0x4E1DF1) wears down how far
 //    ahead of playback it writes until it underruns and pops. As the DLL is
 //    loaded that's patched out and the lead set to soundLatencyMs (PatchEacsnd).
@@ -110,7 +123,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.1"
+#define HPFF_VERSION "0.1.2"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -251,6 +264,9 @@ namespace hp {
         { 0x4DBD2B, "\x8B\x55\xE8\x89\xF0\x89\x75\xF8\xE8\xB8\x16\x02\x00", 13 },  // frustum call
         { 0x4DBD3F, "\xDB\x45\xF8", 3 },                 // fild [ebp-8]: horizontal half FOV
         { 0x4DBD48, "\xDB\x45\xF8", 3 },                 // fild [ebp-8]: vertical half FOV
+        { 0x4A469E, "\x8B\x90\xE8\x1A\x7A\x00\x8B\x88\x5C\xE9\x55\x00\x8B\x98\xC0\x1A\x7A\x00", 18 },  // menu logos: step
+        { 0x4A4C35, "\x66\x8B\x56\x46\x83\xC2\x02", 7 },                // menu background: fade phase += 2
+        { 0x4A4D1B, "\xA1\x28\xEB\x55\x00\x85\xC0\x74\x0B\x8D\x50\xFF", 12 },  // menu spark: countdown
         { 0x4516A0, "\x51\x52\x55", 3 },                 // free disk space test: push ecx / push edx / push ebp
         { 0x4DF87E, "\x6A\x00\x53\x2E\xFF\x15\x08\x46\x53\x00", 10 },  // TerminateThread(h, 0)
     };
@@ -269,6 +285,7 @@ struct Config {
     int   unlockMenus      = 1;
     int   menuTargetFPS    = -1;    // -1 = same as targetFPS, 0 = off
     int   menuMaxFPS       = -1;    // -1 = auto (<= 128, divides the refresh rate), 0 = none
+    int   menuAnimations   = 1;     // per-frame menu animations keep their 64 fps speed
     int   speedUpLoading   = 1;
     float carLodScale      = 2.0f;  // car model LOD switch distances x this (1 = the game's)
     int   carDrawDistance  = 0;     // m; cars further away aren't drawn (0 = the game's 300)
@@ -382,6 +399,11 @@ static const char kIniText[] =
     ";    0 = no ceiling\n"
     ";    N = at most N fps\n"
     "menuMaxFPS=-1\n"
+    "\n"
+    "; Keep the menus' frame-by-frame animations (the drifting logos, the spark\n"
+    "; and glow at the top left, the background fade) at their normal speed at\n"
+    "; any frame rate\n"
+    "menuAnimations=1\n"
     "\n"
     "\n"
     "[Loading]\n"
@@ -535,7 +557,8 @@ static const char kIniText[] =
     "; If the whole game was started on one core (taskset, a launcher's single-core\n"
     "; option), the system's sound threads share that core and the sound pops whenever the\n"
     "; game is busy. 1 = the game gets all cores back and only its own threads stay on one.\n"
-    "; Needs gameThreadsOneCore=1\n"
+    "; The same is done if something pins the game later, such as a DirectDraw\n"
+    "; wrapper's single-core option. Needs gameThreadsOneCore=1\n"
     "widenAffinity=1\n"
     "\n"
     "\n"
@@ -630,6 +653,7 @@ static void LoadConfig() {
         else if (!_stricmp(key, "unlockMenus"))          g_cfg.unlockMenus = atoi(val);
         else if (!_stricmp(key, "menuTargetFPS"))        g_cfg.menuTargetFPS = atoi(val);
         else if (!_stricmp(key, "menuMaxFPS"))           g_cfg.menuMaxFPS = atoi(val);
+        else if (!_stricmp(key, "menuAnimations"))       g_cfg.menuAnimations = atoi(val);
         else if (!_stricmp(key, "speedUpLoading"))       g_cfg.speedUpLoading = atoi(val);
         else if (!_stricmp(key, "carLodScale"))          g_cfg.carLodScale = (float)atof(val);
         else if (!_stricmp(key, "carDrawDistance"))      g_cfg.carDrawDistance = atoi(val);
@@ -721,8 +745,9 @@ static void DrainLogQueue() {
     }
 }
 static void CaptureFlush();
+static void AffinityWatch();
 static DWORD WINAPI WriterThread(LPVOID) {
-    for (;;) { WaitForSingleObject(g_qEvent, 1000); DrainLogQueue(); CaptureFlush(); }   // (at least once a second)
+    for (;;) { WaitForSingleObject(g_qEvent, 1000); AffinityWatch(); DrainLogQueue(); CaptureFlush(); }   // (at least once a second)
 }
 
 static void OpenLog() {
@@ -785,11 +810,17 @@ template <typename Fn>
 static void ForEachImport(const char* dll, Fn cb) { ForEachImportIn(GetModuleHandleA(nullptr), dll, cb); }
 // This mod's own threads run on every core the process has, even if they're
 // created from a game thread pinned to one core (gameThreadsOneCore).
+static HANDLE g_modThreads[8]; static volatile LONG g_modThreadN = 0;   // (handles of our own: callers close theirs)
 static HANDLE StartModThread(LPTHREAD_START_ROUTINE fn) {
     HANDLE h = CreateThread(nullptr, 0, fn, nullptr, CREATE_SUSPENDED, nullptr);
     if (!h) return nullptr;
     DWORD_PTR proc = 0, sys = 0;
     if (GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) && proc) SetThreadAffinityMask(h, proc);
+    HANDLE d = nullptr;
+    if (DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(), &d, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        LONG i = InterlockedIncrement(&g_modThreadN) - 1;
+        if (i < 8) g_modThreads[i] = d; else CloseHandle(d);
+    }
     ResumeThread(h);
     return h;
 }
@@ -2131,6 +2162,81 @@ static void InstallMenuUnlock() {
     if (!g_knownExe || !g_cfg.unlockMenus) { Logf("menus: original 64 fps cap\n"); return; }
     bool ok = PatchRel32(hp::menuWaitAt, 0xE9, (void*)&MenuWaitStub);
     Logf("menus: %s\n", ok ? "unlocked" : "patch FAILED");
+}
+
+// ---- menu animations that the game steps once per frame --------------------
+extern "C" { int g_logoN = 1, g_glowN = 1; }
+extern "C" void LogoStepStub();
+extern "C" void GlowPhaseStub();
+extern "C" void GlowCountStub();
+
+// steps an animation takes this frame: one per two ticks (64 a second)
+struct TickSteps {
+    DWORD last = 0;
+    bool  have = false;
+    int Take() {
+        DWORD t = *(volatile DWORD*)0x79C1A4 >> 1;
+        DWORD n = t - last;
+        if (!have || n > 8) n = 1;       // first frame, or back in the menus after a while
+        have = true; last = t;
+        return (int)n;
+    }
+};
+extern "C" void __cdecl LogoSteps() { static TickSteps s; g_logoN = s.Take(); }
+extern "C" void __cdecl GlowSteps() { static TickSteps s; g_glowN = s.Take(); }
+
+__asm__(
+    // in place of the step at 0x4A469E (eax = logo * 4): ecx = x + n*dx, ebx = y + n*dy, edx = dx
+    ".globl _LogoStepStub\n"
+    "_LogoStepStub:\n"
+    "    testl %eax, %eax\n"            // first logo: a new frame
+    "    jnz 1f\n"
+    "    call _LogoSteps\n"
+    "    xorl %eax, %eax\n"
+    "1:  movl 0x7A1AE8(%eax), %edx\n"
+    "    movl _g_logoN, %ecx\n"
+    "    movl %ecx, %ebx\n"
+    "    imull %edx, %ecx\n"
+    "    addl 0x55E95C(%eax), %ecx\n"
+    "    imull 0x7A1B10(%eax), %ebx\n"
+    "    addl 0x7A1AC0(%eax), %ebx\n"
+    "    ret\n"
+    // in place of "mov dx, [esi+0x46] / add edx, 2" at 0x4A4C35, the first thing
+    // 0x4A4C20 does after a call: the frame's step count, then phase + 2n
+    ".globl _GlowPhaseStub\n"
+    "_GlowPhaseStub:\n"
+    "    pushal\n"
+    "    call _GlowSteps\n"
+    "    popal\n"
+    "    movw 0x46(%esi), %dx\n"
+    "    addl _g_glowN, %edx\n"
+    "    addl _g_glowN, %edx\n"
+    "    ret\n"
+    // in place of the countdown at 0x4A4D1B: 0 -> 300, else minus n, not below 0
+    ".globl _GlowCountStub\n"
+    "_GlowCountStub:\n"
+    "    movl 0x55EB28, %eax\n"
+    "    testl %eax, %eax\n"
+    "    jz 2f\n"
+    "    subl _g_glowN, %eax\n"
+    "    jns 1f\n"
+    "    xorl %eax, %eax\n"
+    "1:  movl %eax, 0x55EB28\n"
+    "    ret\n"
+    "2:  movl $300, 0x55EB28\n"
+    "    ret\n"
+);
+
+static void InstallMenuAnimations() {
+    if (!g_knownExe || !g_cfg.menuAnimations) { Logf("menu animations: one step per frame, as in the game\n"); return; }
+    static const BYTE skipLogo[2]  = { 0xEB, 0x13 };     // jmp 0x4A46B8, past the rest of the old step
+    static const BYTE nop2[2]      = { 0x90, 0x90 };
+    static const BYTE skipCount[2] = { 0xEB, 0x17 };     // jmp 0x4A4D39, past the rest of the old countdown
+    bool ok = PatchRel32(0x4A469E, 0xE8, (void*)&LogoStepStub)  && PatchBytes(0x4A46A3, skipLogo, 2) &&
+              PatchRel32(0x4A4C35, 0xE8, (void*)&GlowPhaseStub) && PatchBytes(0x4A4C3A, nop2, 2) &&
+              PatchRel32(0x4A4D1B, 0xE8, (void*)&GlowCountStub) && PatchBytes(0x4A4D20, skipCount, 2);
+    Logf("menu animations: %s\n", ok ? "background logos, background fade, spark and glow step 64 times a second"
+                                     : "patch FAILED");
 }
 
 static void InstallLoading() {
@@ -4100,16 +4206,62 @@ static void InstallPortableRegistry() {
 // ---------------------------------------------------------------------------
 typedef HANDLE (WINAPI *CreateThread_t)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
 static CreateThread_t g_oCreateThread = nullptr;
-static DWORD_PTR g_gameCore = 0;
+static volatile DWORD_PTR g_gameCore = 0;
 static std::atomic<unsigned long> g_pinnedThreads{0};
+// The game's threads, kept so they can be put back on their core (AffinityWatch)
+static CRITICAL_SECTION g_gtLock; static bool g_gtLockInit = false;
+static HANDLE g_gameThreads[64]; static int g_gameThreadN = 0;
+static void NoteGameThread(HANDLE h) {
+    HANDLE d = nullptr;
+    if (!g_gtLockInit || !DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(), &d, 0, FALSE, DUPLICATE_SAME_ACCESS)) return;
+    EnterCriticalSection(&g_gtLock);
+    for (int i = 0; i < g_gameThreadN; )          // (threads that have ended make room)
+        if (WaitForSingleObject(g_gameThreads[i], 0) == WAIT_OBJECT_0) { CloseHandle(g_gameThreads[i]); g_gameThreads[i] = g_gameThreads[--g_gameThreadN]; }
+        else i++;
+    if (g_gameThreadN < 64) g_gameThreads[g_gameThreadN++] = d; else CloseHandle(d);
+    LeaveCriticalSection(&g_gtLock);
+}
 static HANDLE WINAPI HkCreateThread(LPSECURITY_ATTRIBUTES sa, SIZE_T stack, LPTHREAD_START_ROUTINE fn, LPVOID arg,
                                     DWORD flags, LPDWORD id) {
     HANDLE h = g_oCreateThread(sa, stack, fn, arg, flags | CREATE_SUSPENDED, id);
     if (h) {
+        // (under the lock: AffinityWatch either sees this thread in the list or has finished before it's pinned)
+        if (g_gtLockInit) EnterCriticalSection(&g_gtLock);
         if (SetThreadAffinityMask(h, g_gameCore)) g_pinnedThreads++;
+        NoteGameThread(h);
+        if (g_gtLockInit) LeaveCriticalSection(&g_gtLock);
         if (!(flags & CREATE_SUSPENDED)) ResumeThread(h);
     }
     return h;
+}
+// Something else can pin the whole process to one core after this mod has
+// loaded - a DirectDraw or Direct3D wrapper's "single core" option does that
+// when the game starts its renderer. That puts the system's sound threads and
+// this mod's own on the game's core after all, and leaves the game's threads
+// with a core of ours that the process no longer has. Looked at once a second
+// (the log writer's thread): if the process has come down to one core, it gets
+// all of them back (widenAffinity), the game's threads go to the core the
+// other one picked, and this mod's threads get every core again.
+static void AffinityWatch() {
+    if (!g_gameCore || !g_cfg.widenAffinity || !g_gtLockInit) return;
+    DWORD_PTR proc = 0, sys = 0;
+    if (!GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) || !proc) return;
+    if ((proc & (proc - 1)) || !(sys & (sys - 1))) return;        // (not pinned, or there is only one core)
+    static int times = 0;
+    EnterCriticalSection(&g_gtLock);              // (no game thread is created and pinned half way through this)
+    if (!SetProcessAffinityMask(GetCurrentProcess(), sys)) {
+        LeaveCriticalSection(&g_gtLock);
+        if (times++ < 3) Logf("threads: the process was pinned to one core (mask %lX) after the mod loaded - couldn't be widened\n", (unsigned long)proc);
+        return;
+    }
+    g_gameCore = proc;
+    int n = 0;
+    for (int i = 0; i < g_gameThreadN; i++) if (SetThreadAffinityMask(g_gameThreads[i], proc)) n++;
+    LeaveCriticalSection(&g_gtLock);
+    LONG mods = g_modThreadN;
+    for (LONG i = 0; i < mods && i < 8; i++) if (g_modThreads[i]) SetThreadAffinityMask(g_modThreads[i], sys);
+    if (times++ < 8) Logf("threads: something pinned the whole process to one core (mask %lX) after the mod loaded - "
+                          "all cores given back, the game's %d thread(s) kept on that core\n", (unsigned long)proc, n);
 }
 static bool HookCreateThreadIn(HMODULE mod, const char* what) {
     bool hooked = false;
@@ -4146,11 +4298,13 @@ static void InstallGameThreadsOneCore() {
         proc = sys;
     }
     g_gameCore = (was & (was - 1)) ? proc & (~proc + 1) : was;   // (the core it was pinned to, if it was)
+    InitializeCriticalSection(&g_gtLock); g_gtLockInit = true;   // (before the hook: HkCreateThread uses it)
     if (!HookCreateThreadIn(GetModuleHandleA(nullptr), "nfs3.exe")) {
         if (was != proc) SetProcessAffinityMask(GetCurrentProcess(), was);   // (can't pin the game's threads: as it was)
         g_gameCore = 0; return;
     }
     SetThreadAffinityMask(GetCurrentThread(), g_gameCore);      // DllMain runs on the game's main thread
+    NoteGameThread(GetCurrentThread());
     int core = 0; while (!((g_gameCore >> core) & 1)) core++;
     Logf("threads: the game's threads on core %d, the rest on all cores\n", core);
 }
@@ -4353,6 +4507,7 @@ BOOL APIENTRY DllMain(HMODULE h, DWORD reason, LPVOID reserved) {
         InstallTickScheduler();
         InstallInterpolation();
         InstallMenuUnlock();
+        InstallMenuAnimations();
         InstallLoading();
         InstallPortableRegistry();
         InstallLoadLibraryHook();

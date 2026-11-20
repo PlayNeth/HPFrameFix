@@ -82,7 +82,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 ### Sound
 
-- **No crackling or popping:** the sound driver no longer wears its buffer down until it runs dry, and the game's threads share one core while the system's sound threads keep the others. A game started on a single core gets its other cores back.
+- **No crackling or popping:** the sound driver no longer wears its buffer down until it runs dry, and the game's threads share one core while the system's sound threads keep the others. A game started on a single core, or pinned to one later, gets its other cores back.
 
 ### Fixes
 
@@ -107,6 +107,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `interpolate` | `1` | Smooth frames at the refresh rate; `0` = the game's 64 fps. |
 | `targetFPS` | `-1` | `-1` = v-sync, else the refresh rate; `0` = no limit; `N` = N fps. |
 | `interpDelay` | `1.0` | Raise to `1.5` if you see hitches. |
+| `menuAnimations` | `1` | The menus' drifting logos, background fade, spark and glow keep their speed at any frame rate. |
 | `renderer` | `d3d` | `d3d`, `software`, `voodoo`, `voodoo2`, a renderer DLL name, or empty for the game's own setting. |
 | `d3dDevice` | `-1` | Direct3D's display adapter: `0` = primary, `1` = second; `-1` = the Windows registry's, else the primary. |
 | `widescreen` | `1` | Master switch for every widescreen setting. |

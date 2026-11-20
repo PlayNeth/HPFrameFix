@@ -14,6 +14,11 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.2
+
+- **Menu animations keep their speed** at any frame rate (`menuAnimations`, on by default). The logos drifting behind the menus, the cross-fade of the menu frame's background, and the spark running along the arc to the ball at the top left took one step per frame, so above 64 fps they ran too fast. They now take 64 steps a second, as under the game's own cap.
+- **A process pinned to one core after the mod has loaded** (a wrapper's or launcher's single-core option) gets every core back, with the game's threads kept on that one core (`widenAffinity`). Before, `widenAffinity` only acted when the mod loaded.
+
 ## 0.1.1
 
 - **No `HPFrameFix_registry.ini` any more.** The game's registry values are answered without a file of their own, as HSFrameFix does: the renderer from `renderer=`, the display adapter from the new `d3dDevice=` (`-1` = not set here), and any other value from the Windows registry if it's there. A file left by 0.1.0 is still read, ahead of the Windows registry, and can be deleted.
