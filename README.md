@@ -4,6 +4,8 @@ An unlocked frame rate with smooth interpolation, seamless widescreen and a port
 
 The game simulates at a fixed 64 Hz and only draws a frame after each simulation step. HPFrameFix draws at your display's refresh rate and blends motion between steps, so the game is smooth at 60, 120, 144 Hz and higher. It also adds proper widescreen and Direct3D fog, fixes the sound and the movie freeze on today's PCs, and lets the game run from any folder without an installer or the CD. It's a single file, `HPFrameFix.asi`, and it doesn't touch the game's files on disk.
 
+This is the **plus** branch: everything in the main release, plus gameplay changes that go beyond fixes. They have their own settings, so each one can be turned back to the game's behaviour.
+
 It shares its engine work with [HSFrameFix](https://github.com/PlayNeth/HSFrameFix), the same mod for Need for Speed: High Stakes.
 
 ---
@@ -81,6 +83,10 @@ Every feature has its own setting in `HPFrameFix.ini`.
 - **Textures up to 512×512** with the Direct3D renderer, for HD texture and car mods.
 - **Car detail:** cars keep their detailed models further away, and no car is dropped to lower detail by the game's budget.
 
+### Gameplay
+
+- **No speed lost over jumps:** the game slows every car down with a strong drag while it's in the air, so every jump costs a lot of speed. That drag is gone by default, for every car, and `airDrag` can bring back any share of it.
+
 ### Sound
 
 - **No crackling or popping:** the sound driver no longer wears its buffer down until it runs dry, and the game's threads share one core while the system's sound threads keep the others. A game started on a single core, or pinned to one later, gets its other cores back.
@@ -116,6 +122,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `wsPauseMenu` | `1` | In-race menus: `1` = frame over the screen, `2` = all in 4:3 (the pointer still reaches the whole screen), `0` = stretched. |
 | `d3dFog` | `1` | Fog on Direct3D. |
 | `maxTextureSize` | `512` | Largest texture the game loads. Above 256 with Direct3D only. |
+| `airDrag` | `0` | Drag on cars in the air: `0` = none, `1` = the game's. |
 | `fixSound` | `1` | Sound driver fix. |
 | `soundLatencyMs` | `40` | Raise it if you hear dropouts. |
 | `portableRegistry` | `1` | The game's registry settings come from the mod, so no registry entries are needed. |
