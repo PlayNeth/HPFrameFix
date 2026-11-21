@@ -14,6 +14,13 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.7-plus
+
+0.1.7, plus the gameplay changes of 0.1.6-plus, and:
+
+- **Tracks at High Stakes' size** (`trackScale`, `[Gameplay]` section). High Stakes brought this game's tracks over shrunk to exactly 0.7692 of their size. The same is now done as each track loads: the road and its walls, the scenery, its objects and their animations, lights, and the trackside cameras all shrink, while the cars keep their size, so the same speed covers more of the track. `1` is the game's size. The game's files on disk aren't changed, and a track whose files aren't laid out as expected is left at its own size.
+- **The roof camera** follows the car loosely and widens its view with speed too, like the low camera (`lowCamLoose`, `lowCamSpeedFov`); the descriptions now say so.
+
 ## 0.1.7
 
 - **Intro movie no longer garbled with the menus at the chosen resolution** (`wsMenus`). The movie player reads the screen's layout once, when a movie starts. The intro starts while the screen is still at the game's 640x480, just before the menus switch to their own resolution, so every frame was then written with the old layout and the intro came out as smeared bands. The player now draws into a 640x480 picture of its own, which is then scaled to the menu area (or, with `wsMovies=0`, copied to the top left corner).

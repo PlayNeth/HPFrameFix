@@ -291,6 +291,10 @@ namespace hp {
         { 0x4516A0, "\x51\x52\x55", 3 },                 // free disk space test: push ecx / push edx / push ebp
         { 0x4DF87E, "\x6A\x00\x53\x2E\xFF\x15\x08\x46\x53\x00", 10 },  // TerminateThread(h, 0)
         { 0x4A25A3, "\xD9\x05\xB4\xC8\x53\x00", 6 },  // car physics: fld [0x53C8B4] (air drag factor)
+        { 0x419C3A, "\xE8\x81\x72\x0C\x00", 5 },        // track: .frd loaded (call 0x4E0EC0)
+        { 0x41DD24, "\xE8\xB7\x36\x01\x00", 5 },        // track: .col copied (call 0x4313E0)
+        { 0x41E322, "\xE8\x99\x2B\x0C\x00", 5 },        // track: simhts.dat loaded (call 0x4E0EC0)
+        { 0x41E1C5, "\xE8\x16\x2E\x0C\x00", 5 },        // track: .ccm loaded (call 0x4E0FE0)
         { 0x53C8B4, "\x00\x00\x00\x3D", 4 },        // 0.03125
         { 0x4BC3F2, "\xE8\x09\x67\xFC\xFF", 5 },        // main view: call the HUD 0x482B00
         { 0x4DBEE0, "\x5D\x5E\x5A\x59\x5B\xC3", 6 },  // ViewSetup: its tail (pop ebp..ebx / ret)
@@ -329,13 +333,14 @@ struct Config {
     float projLightBrightness = 0.75f; // projected headlights: their colour x this
     float projLightWidth   = 1.3f;  // projected headlights: their beam this much wider
     float airDrag          = 0.0f;  // air drag on cars in the air, x the game's (1 = the game's, 0 = none)
+    float trackScale       = 0.7692f; // tracks' size, x the game's (High Stakes: 0.7692; 1 = the game's)
     float speedBlur        = 1.0f;  // Direct3D: radial blur at the screen's edges at speed (0 = off)
     float cameraShake      = 1.0f;  // the view shakes slightly at speed (0 = off)
     int   speedBlurFrom    = 90;    // km/h where speedBlur starts
     int   cameraShakeFrom  = 90;    // km/h where cameraShake starts
     int   speedEffectsFull = 320;   // km/h where both are at full strength
-    float lowCamLoose      = 1.0f;  // low camera: follows the car's turns and bumps with a lag (0 = rigid, the game's)
-    float lowCamSpeedFov   = 8.0f;  // low camera: degrees its view widens by at speedEffectsFull (0 = fixed)
+    float lowCamLoose      = 1.0f;  // low and roof cameras: follow the car's turns and bumps with a lag (0 = rigid, the game's)
+    float lowCamSpeedFov   = 8.0f;  // low and roof cameras: degrees their view widens by at speedEffectsFull (0 = fixed)
     int   maxTextureSize   = 512;   // largest texture loaded (the game's 256; more with Direct3D only)
     int   closeExits       = 1;     // closing the window (Alt+F4, window manager) ends the game
     int   widescreen       = 1;     // master switch for the ws* keys
@@ -601,6 +606,12 @@ static const char kIniText[] =
     "; 1 = the game's\n"
     "airDrag=0\n"
     "\n"
+    "; The tracks' size, times the game's. Everything on them shrinks with them (the\n"
+    "; road, the scenery, its objects, the trackside cameras); the cars stay as they\n"
+    "; are, so the same speed covers more of the track. High Stakes shrank this game's\n"
+    "; tracks by exactly 0.7692 when it brought them over. 1 = the game's size\n"
+    "trackScale=0.7692\n"
+    "\n"
     "\n"
     "[Speed effects]\n"
     "\n"
@@ -623,12 +634,13 @@ static const char kIniText[] =
     "\n"
     "[Cameras]\n"
     "\n"
-    "; The low camera is fixed to the car: every bump and twitch goes straight into the\n"
-    "; picture. 1 = it follows the car's turns, pitch and roll with a lag, swinging round\n"
-    "; the car in turns and riding out bumps; 2 = looser still. 0 = the game's\n"
+    "; The low and roof cameras are fixed to the car: every bump and twitch goes\n"
+    "; straight into the picture. 1 = they follow the car's turns, pitch and roll with a\n"
+    "; lag, swinging round the car in turns and riding out bumps; 2 = looser still.\n"
+    "; 0 = the game's\n"
     "lowCamLoose=1.0\n"
     "\n"
-    "; The low camera's view widens with speed, by up to this many degrees at\n"
+    "; The low and roof cameras' view widens with speed, by up to this many degrees at\n"
     "; speedEffectsFull. Needs wsFixFOV. 0 = the game's fixed view\n"
     "lowCamSpeedFov=8\n"
     "\n"
@@ -756,6 +768,7 @@ static void LoadConfig() {
         else if (!_stricmp(key, "projLightBrightness"))  g_cfg.projLightBrightness = (float)atof(val);
         else if (!_stricmp(key, "projLightWidth"))       g_cfg.projLightWidth = (float)atof(val);
         else if (!_stricmp(key, "airDrag"))              g_cfg.airDrag = (float)atof(val);
+        else if (!_stricmp(key, "trackScale"))           g_cfg.trackScale = (float)atof(val);
         else if (!_stricmp(key, "speedBlur"))            g_cfg.speedBlur = (float)atof(val);
         else if (!_stricmp(key, "cameraShake"))          g_cfg.cameraShake = (float)atof(val);
         else if (!_stricmp(key, "speedBlurFrom"))        g_cfg.speedBlurFrom = atoi(val);
@@ -2581,6 +2594,235 @@ static void InstallAirDrag() {
 }
 
 // ---------------------------------------------------------------------------
+// Track scale. High Stakes brought this game's tracks over shrunk by exactly
+// 0.7692, every position in them (Hometown's .frd vertices, block centres and
+// road nodes, its heights.sim, its trackside cameras); this does the same as
+// each track loads. Each file is scaled in the buffer it's loaded into, before
+// the game reads anything out of it, so all the game works out from them
+// follows. Each is walked twice: once only to check that its layout is the one
+// expected, to its last byte, then to scale it; a file that doesn't fit is
+// left as it is. Positions are floats in metres or 16.16 fixed point; normals,
+// directions, polygons and textures stay as they are.
+//  - trNN.frd (0x419C20 reads it from the buffer 0x4E0EC0 loaded at 0x419C3A;
+//    its size: [0x5643F8]): per block its centre and bounding points, its
+//    vertices, its object references, sound and light sources; then the
+//    objects (4 lists per block and one for the whole track): their place and
+//    vertices, and the 16.16 path of the animated ones (type 3, whose place
+//    field isn't one).
+//  - trNN.col (copied without its 16-byte header to [0x552E18] by 0x4313E0, at
+//    0x41DD24; section offsets first, [0x5EFF14] of them; its size
+//    [0x5EFF10]): road nodes (section 15: 16.16 place, then the two walls'
+//    distances), the objects' shapes (8: float vertices) and objects (7, and
+//    the alike 9 and 18: a 16.16 place, or an animation path).
+//  - simhts.dat (0x41E322): a float per road node, scaled as a whole.
+//  - trNN.ccm (0x41E1C5): the trackside cameras, 28 bytes each after an
+//    8-byte header, a 16.16 place first.
+//  - The .can files (camera paths at the start and finish) High Stakes left as
+//    they were: they follow the car.
+// ---------------------------------------------------------------------------
+namespace ts {
+struct Walk {
+    BYTE* p; size_t n; size_t o; bool ok; bool apply; float s;
+    bool Need(size_t k) {
+        if (!ok || o > n || k > n - o) { ok = false; return false; }
+        return true;
+    }
+    int I32() { int v = 0; if (Need(4)) { memcpy(&v, p + o, 4); o += 4; } return v; }
+    int Count(size_t each) {                      // a record count: sane, and its records within the buffer
+        int c = I32();
+        if (c < 0 || (size_t)c > (n - (o < n ? o : n)) / (each ? each : 1)) ok = false;
+        return ok ? c : 0;
+    }
+    void Skip(size_t k) { if (Need(k)) o += k; }
+    void Floats(size_t k) {                       // k floats in metres
+        if (!Need(4 * k)) return;
+        if (apply) for (size_t i = 0; i < k; i++) {
+            float v; memcpy(&v, p + o + 4 * i, 4); v *= s; memcpy(p + o + 4 * i, &v, 4);
+        }
+        o += 4 * k;
+    }
+    void Fixed(size_t k) {                        // k 16.16 fixed-point values in metres
+        if (!Need(4 * k)) return;
+        if (apply) for (size_t i = 0; i < k; i++) {
+            int v; memcpy(&v, p + o + 4 * i, 4); v = (int)lround(v * (double)s); memcpy(p + o + 4 * i, &v, 4);
+        }
+        o += 4 * k;
+    }
+};
+static void FrdObjects(Walk& w) {
+    int c = w.Count(36);
+    for (int i = 0; i < c && w.ok; i++) {
+        int type = w.I32(); w.Skip(8);
+        if (type == 3) w.Skip(12); else w.Floats(3);
+        int ab = w.Count(1);                      // animation: 8-byte header, then 20 bytes a step
+        if (ab >= 8) {
+            size_t end = w.o + ab;
+            w.Skip(8);
+            for (int k = 0; k < (ab - 8) / 20 && w.ok; k++) { w.Fixed(3); w.Skip(8); }
+            if (w.ok) w.o = end;
+        } else w.Skip(ab);
+        int nv = w.Count(16); w.Floats(3 * (size_t)nv); w.Skip(4 * (size_t)nv);
+        int np = w.Count(14); w.Skip(14 * (size_t)np);
+    }
+}
+static void Frd(Walk& w) {
+    w.Skip(28);
+    int nb = w.Count(1300);                       // the last block's number (blocks 0..nb)
+    for (int b = 0; b <= nb && w.ok; b++) {
+        w.Floats(15);                             // centre, 4 bounding points
+        int nv = w.Count(16); w.Skip(20);
+        w.Floats(3 * (size_t)nv); w.Skip(4 * (size_t)nv);
+        w.Skip(0x4B0);                            // neighbours
+        int c[8];
+        for (int k = 0; k < 8; k++) c[k] = w.Count(1);
+        if (!w.ok) break;
+        w.Skip(8 * (size_t)c[1]); w.Skip(8 * (size_t)c[2]); w.Skip(12 * (size_t)c[3]);   // positions, polygon flags, road normals
+        for (int k = 0; k < c[4] && w.ok; k++) { w.Fixed(3); w.Skip(8); }               // object references
+        w.Skip(20 * (size_t)c[5]);
+        for (int k = 0; k < c[6] && w.ok; k++) { w.Fixed(3); w.Skip(4); }               // sound sources
+        for (int k = 0; k < c[7] && w.ok; k++) { w.Fixed(3); w.Skip(4); }               // light sources
+    }
+    for (int b = 0; b <= nb && w.ok; b++)         // polygons: 11 lists per block
+        for (int l = 0; l < 11 && w.ok; l++) {
+            if (w.I32() == 0) continue;
+            if (l <= 6) { int m = w.Count(14); w.Skip(14 * (size_t)m); continue; }
+            int c = w.Count(4);
+            for (int k = 0; k < c && w.ok; k++)
+                if (w.I32() == 1) { int m = w.Count(14); w.Skip(14 * (size_t)m); }
+        }
+    for (int b = 0; b <= nb && w.ok; b++)
+        for (int l = 0; l < 4 && w.ok; l++) FrdObjects(w);
+    FrdObjects(w);                                // the whole track's
+    int nt = w.Count(47); w.Skip(47 * (size_t)nt);  // textures
+}
+static void ColObjects(Walk& w, size_t end, int nrec) {
+    for (int i = 0; i < nrec && w.ok; i++) {
+        size_t at = w.o;
+        if (!w.Need(8)) break;
+        WORD size; memcpy(&size, w.p + at, 2);
+        BYTE type = w.p[at + 2];
+        if (size < 4 || size > end - at) { w.ok = false; break; }
+        if (type == 1) { w.o = at + 4; if (size >= 16) w.Fixed(3); }
+        else if (type == 3) {
+            WORD len; memcpy(&len, w.p + at + 4, 2);
+            if (8 + 20 * (size_t)len > size) { w.ok = false; break; }
+            w.o = at + 8;
+            for (int k = 0; k < len && w.ok; k++) { w.Fixed(3); w.Skip(8); }
+        }
+        w.o = at + size;
+    }
+}
+static void Col(Walk& w, int nsec) {
+    if (nsec <= 0 || nsec > 64 || !w.Need(4 * (size_t)nsec)) { w.ok = false; return; }
+    for (int i = 0; i < nsec && w.ok; i++) {
+        int off; memcpy(&off, w.p + 4 * i, 4);
+        if (off < 4 * nsec || (size_t)off > w.n || w.n - off < 8) { w.ok = false; break; }
+        int size; WORD xbid, nrec;
+        memcpy(&size, w.p + off, 4); memcpy(&xbid, w.p + off + 4, 2); memcpy(&nrec, w.p + off + 6, 2);
+        if (size < 8 || (size_t)size > w.n - off) { w.ok = false; break; }
+        size_t end = off + (size_t)size;
+        w.o = off + 8;
+        if (xbid == 15) {                         // road nodes, 36 bytes
+            if (36 * (size_t)nrec > (size_t)size - 8) { w.ok = false; break; }
+            for (int k = 0; k < nrec; k++) { w.Fixed(3); w.Skip(16); w.Fixed(2); }
+        } else if (xbid == 8) {                   // objects' shapes
+            for (int k = 0; k < nrec && w.ok; k++) {
+                size_t at = w.o;
+                if (!w.Need(8)) break;
+                int rs; WORD nv; memcpy(&rs, w.p + at, 4); memcpy(&nv, w.p + at + 4, 2);
+                if (rs < 8 || (size_t)rs > end - at || 8 + 16 * (size_t)nv > (size_t)rs) { w.ok = false; break; }
+                w.o = at + 8;
+                for (int v = 0; v < nv; v++) { w.Floats(3); w.Skip(4); }
+                w.o = at + rs;
+            }
+        } else if (xbid == 7 || xbid == 9 || xbid == 18) ColObjects(w, end, nrec);
+    }
+}
+static void Heights(Walk& w) { if (w.n % 4) w.ok = false; else w.Floats(w.n / 4); }
+static void Cameras(Walk& w) {
+    w.Skip(4);
+    int c = w.Count(28);
+    for (int k = 0; k < c && w.ok; k++) { w.Fixed(3); w.Skip(16); }
+}
+// checks the layout first, then scales; true if it was scaled
+static bool Scale(void (*fn)(Walk&), BYTE* p, size_t n, float s, int nsec = 0) {
+    if (!p || !n) return false;
+    Walk w = { p, n, 0, true, false, s };
+    auto run = [&](Walk& x) { if (nsec) Col(x, nsec); else fn(x); };
+    run(w);
+    if (!w.ok || (!nsec && w.o != n)) return false;
+    Walk a = { p, n, 0, true, true, s };
+    run(a);
+    return a.ok;
+}
+}  // namespace ts
+#ifndef TS_TEST
+static float g_trackScale = 1.0f;
+static void TsLog(const char* what, bool ok) {
+    LogfAsync("track scale: %s %s\n", what, ok ? "scaled" : "left as it is (not the layout expected)");
+}
+extern "C" void __cdecl TsFrd(BYTE* p) { if (p) TsLog(".frd", ts::Scale(ts::Frd, p, Rd<int>(0x5643F8), g_trackScale)); }
+extern "C" void __cdecl TsHeights(BYTE* p) { if (p) TsLog("simhts.dat", ts::Scale(ts::Heights, p, Rd<int>(0x5643F8), g_trackScale)); }
+extern "C" void __cdecl TsCameras(BYTE* p) { if (p) TsLog(".ccm", ts::Scale(ts::Cameras, p, Rd<int>(0x5643F8), g_trackScale)); }
+extern "C" void __cdecl TsCol() {
+    BYTE* p = Rd<BYTE*>(0x552E18); int size = Rd<int>(0x5EFF10);
+    if (p && size > 16) TsLog(".col", ts::Scale(nullptr, p, size - 16, g_trackScale, Rd<int>(0x5EFF14)));
+}
+extern "C" { DWORD g_fnLoadFile = 0x4E0EC0, g_fnLoadFileNc = 0x4E0FE0, g_fnColCopy = 0x4313E0; }
+extern "C" void TsFrdStub(); extern "C" void TsHeightsStub(); extern "C" void TsCamerasStub(); extern "C" void TsColStub();
+__asm__(
+    // a file loaded (eax = its buffer, 0 if it failed), then scaled
+    ".globl _TsFrdStub\n"
+    "_TsFrdStub:\n"
+    "    call *_g_fnLoadFile\n"
+    "    pushal\n"
+    "    pushl %eax\n"
+    "    call _TsFrd\n"
+    "    addl $4, %esp\n"
+    "    popal\n"
+    "    ret\n"
+    ".globl _TsHeightsStub\n"
+    "_TsHeightsStub:\n"
+    "    call *_g_fnLoadFile\n"
+    "    pushal\n"
+    "    pushl %eax\n"
+    "    call _TsHeights\n"
+    "    addl $4, %esp\n"
+    "    popal\n"
+    "    ret\n"
+    ".globl _TsCamerasStub\n"
+    "_TsCamerasStub:\n"
+    "    call *_g_fnLoadFileNc\n"
+    "    pushal\n"
+    "    pushl %eax\n"
+    "    call _TsCameras\n"
+    "    addl $4, %esp\n"
+    "    popal\n"
+    "    ret\n"
+    // the .col copied into [0x552E18] (eax = 1)
+    ".globl _TsColStub\n"
+    "_TsColStub:\n"
+    "    call *_g_fnColCopy\n"
+    "    pushal\n"
+    "    call _TsCol\n"
+    "    popal\n"
+    "    ret\n"
+);
+static void InstallTrackScale() {
+    if (!g_knownExe) return;
+    float s = g_cfg.trackScale;
+    if (!(s > 0.0f)) s = 1.0f;                    // (0, negative or NaN: the game's)
+    if (s < 0.5f) s = 0.5f;
+    if (s > 2.0f) s = 2.0f;
+    if (fabsf(s - 1.0f) < 1e-4f) { Logf("track scale: the game's\n"); return; }
+    g_trackScale = s;
+    bool ok = PatchRel32(0x419C3A, 0xE8, (void*)&TsFrdStub) && PatchRel32(0x41DD24, 0xE8, (void*)&TsColStub) &&
+              PatchRel32(0x41E322, 0xE8, (void*)&TsHeightsStub) && PatchRel32(0x41E1C5, 0xE8, (void*)&TsCamerasStub);
+    Logf("track scale: x%.4f: %s\n", s, ok ? "on" : "patch FAILED");
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // Speed effects. Both follow the speed of the car the view's camera follows
 // (cam+4): car+0x4F4, signed, in m/s (the speedometer shows it x3.6 or
 // x2.2369, 0x412EB3).
@@ -2927,10 +3169,11 @@ asm(
     "    ret\n");
 
 // ---------------------------------------------------------------------------
-// The low camera. The game's views (low, high, roof, bumper, cockpit, heli)
-// are camera types from its camera setup; the two chase cameras 1 m up
-// (types 4 and 6: cam+0x110 = 0, 1.0, -4.0 / -3.25 in the car's axes, set at
-// 0x422F67 / 0x422FEF) are updated by 0x4243A0, reached each step through
+// The low and roof cameras. The game's views (low, high, roof, bumper,
+// cockpit, heli) are camera types from its camera setup; the two chase
+// cameras 1 m up, the low and the roof one (types 4 and 6: cam+0x110 = 0,
+// 1.0, -4.0 / -3.25 in the car's axes, set at 0x422F67 / 0x422FEF), are both
+// updated by 0x4243A0, reached each step through
 // the per-step camera update 0x426450's table at 0x4264A8. They're placed
 // against the car with its rotation, so every bump and twitch of the car
 // goes straight into the picture. After that update the car's rotation is
@@ -3070,11 +3313,11 @@ asm(
 static void InstallLowCam() {
     if (!g_knownExe) return;
     if (g_cfg.lowCamLoose > 0)
-        Logf("low camera: loose x%.2f: %s\n", g_cfg.lowCamLoose,
+        Logf("low and roof cameras: loose x%.2f: %s\n", g_cfg.lowCamLoose,
              PatchRel32(0x4264A8, 0xE8, (void*)&LowCamStub) ? "on" : "patch FAILED");
-    else Logf("low camera: the game's (rigid)\n");
+    else Logf("low and roof cameras: the game's (rigid)\n");
     if (g_cfg.lowCamSpeedFov > 0)
-        Logf("low camera: view up to %.1f degrees wider with speed%s\n", g_cfg.lowCamSpeedFov,
+        Logf("low and roof cameras: view up to %.1f degrees wider with speed%s\n", g_cfg.lowCamSpeedFov,
              g_cfg.widescreen && g_cfg.wsFixFOV ? "" : " - off, it needs widescreen and wsFixFOV");
 }
 
@@ -5656,6 +5899,7 @@ BOOL APIENTRY DllMain(HMODULE h, DWORD reason, LPVOID reserved) {
         InstallCarDetail();
         InstallTextureSize();
         InstallAirDrag();
+        InstallTrackScale();
         InstallSpeedEffects();
         InstallLowCam();
         InstallProjLights();

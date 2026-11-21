@@ -85,12 +85,13 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 ### Gameplay
 
+- **Tracks at High Stakes' size:** High Stakes brought this game's tracks over shrunk to 0.7692 of their size. The same is done here as each track loads, with everything on it (the road, the scenery, objects, trackside cameras), while the cars keep theirs: the same speed covers more of the track (`trackScale`; `1` = the game's size). The game's files aren't changed.
 - **No speed lost over jumps:** the game slows every car down with a strong drag while it's in the air, so every jump costs a lot of speed. That drag is gone by default, for every car, and `airDrag` can bring back any share of it.
 - **Speed effects,** growing to full strength at 320 km/h:
   - **speed blur** (Direct3D), from 90 km/h: the picture blurs outwards towards the screen's edges, while the middle, the HUD and the mirror stay sharp. In the cockpit view the dashboard blurs along with the road;
   - **camera shake** (every renderer), from 90 km/h: the view shakes slightly. It stands still while the game is paused.
 - **Projected headlights** (night races, the game's projected headlight option) reach further, with a wider and softer beam (`projLightReach`, `projLightWidth`, `projLightBrightness`).
-- **A looser low camera:** the low chase camera no longer copies every bump and twitch of the car. It follows the car's turns, pitch and roll with a lag, swinging round the car in turns and riding out bumps (`lowCamLoose`), and its view widens with speed, by up to 8 degrees (`lowCamSpeedFov`).
+- **Looser low and roof cameras:** these two chase cameras no longer copy every bump and twitch of the car. It follows the car's turns, pitch and roll with a lag, swinging round the car in turns and riding out bumps (`lowCamLoose`), and its view widens with speed, by up to 8 degrees (`lowCamSpeedFov`).
 
 ### Sound
 
@@ -127,14 +128,15 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `wsPauseMenu` | `1` | In-race menus: `1` = frame over the screen, `2` = all in 4:3 (the pointer still reaches the whole screen), `0` = stretched. |
 | `d3dFog` | `1` | Fog on Direct3D. |
 | `maxTextureSize` | `512` | Largest texture the game loads. Above 256 with Direct3D only. |
+| `trackScale` | `0.7692` | The tracks' size, x the game's: `0.7692` = High Stakes', `1` = the game's. |
 | `airDrag` | `0` | Drag on cars in the air: `0` = none, `1` = the game's. |
 | `speedBlur` | `1.0` | Strength of the speed blur; `0` = off. |
 | `cameraShake` | `1.0` | Strength of the camera shake; `0` = off. |
 | `projLightReach` | `1.5` | Projected headlights: how far they reach, x the game's. |
 | `projLightWidth` | `1.3` | Projected headlights: how wide the beam is, x the game's. |
 | `projLightBrightness` | `0.75` | Projected headlights: how bright the light is, x the game's. |
-| `lowCamLoose` | `1.0` | How loosely the low camera follows the car; `0` = the game's rigid camera. |
-| `lowCamSpeedFov` | `8` | Degrees the low camera's view widens by at speed; `0` = fixed. |
+| `lowCamLoose` | `1.0` | How loosely the low and roof cameras follow the car; `0` = the game's rigid camera. |
+| `lowCamSpeedFov` | `8` | Degrees the low and roof cameras' view widens by at speed; `0` = fixed. |
 | `fixSound` | `1` | Sound driver fix. |
 | `soundLatencyMs` | `40` | Raise it if you hear dropouts. |
 | `portableRegistry` | `1` | The game's registry settings come from the mod, so no registry entries are needed. |
