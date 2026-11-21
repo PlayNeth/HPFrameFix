@@ -14,6 +14,10 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.7
+
+- **Intro movie no longer garbled with the menus at the chosen resolution** (`wsMenus`). The movie player reads the screen's layout once, when a movie starts. The intro starts while the screen is still at the game's 640x480, just before the menus switch to their own resolution, so every frame was then written with the old layout and the intro came out as smeared bands. The player now draws into a 640x480 picture of its own, which is then scaled to the menu area (or, with `wsMovies=0`, copied to the top left corner).
+
 ## 0.1.6
 
 - **Arrow keys in the in-race menus.** With `wsPauseMenu=1` on a wide screen, moving along the bottom row with the arrow keys left the pointer between the middle button and the side ones, over nothing. It now lands on the button the game moved to.

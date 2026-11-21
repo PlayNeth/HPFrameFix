@@ -123,7 +123,7 @@
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-#define HPFF_VERSION "0.1.6"
+#define HPFF_VERSION "0.1.7"
 // Test builds (a version with "test" in it) record the first two minutes of the
 // game's mix to HPFrameFix_mix.wav unless the ini says otherwise, and write a
 // step-by-step trace around every look back press and release to the log.
@@ -3589,7 +3589,7 @@ static void MnClearBars() {
     for (int i = 0; i < n; i++) { g_mnClip(r[i][0], r[i][1], r[i][2], r[i][3]); g_mnClear(); }
     MnClipNow(g_mnClipRect[0], g_mnClipRect[1], g_mnClipRect[2], g_mnClipRect[3]);
 }
-static void MnScaleFrame();
+static void MnScaleFrame(const BYTE* from = nullptr, int fromPitch = 0);
 static void* g_mnLockReal = nullptr;
 static BYTE* g_mnSrc = nullptr;                   // the 640x480 picture MnScaleFrame scaled last
 static int   g_mnSrcBp = 0;                       // its bytes per pixel (0: none yet)
@@ -3618,37 +3618,65 @@ static void WINAPI MnFlip() {
 }
 
 // ---- movies: the locked frame ------------------------------------------------
-// lockwindow returns { bits, pitch, ?, width (+0xC), height (+0x10), ... }; the
-// movie player (0x5179D0) takes the size from it. While mapped it gets a copy
-// that says 640x480, so it writes its picture at the top left; at unlock that
-// block is scaled to the menu area in place.
+// lockwindow returns { bits, pitch, format (+8), width (+0xC), height (+0x10),
+// ... }. The movie player takes all of it once when a movie starts (0x5179D0,
+// its lock at 0x517A36) and works out its own values from the row length
+// there (0x509A30 -> player+0x2C); each frame's lock (0x51789B, and 0x524823)
+// then only updates the frame's address and row length (player+0x20, +0x28).
+// While the menus are in a mode of their own the player gets its own 640x480
+// buffer instead of the screen, its rows as long as the ones it took when the
+// movie started, and at unlock that picture is scaled to the menu area
+// (wsMovies; 0: copied to the top left as it is). Not the screen
+// itself: the intro starts while the screen is still 640x480 (rows of 1280
+// bytes), before the menus' mode (854x480: 1712), and its frames, written
+// with rows of the new length but the old values, came out as smeared bands.
 static BYTE  g_mnLockCopy[0x40];
 static bool  g_mnLockMovie = false;
+static BYTE* g_mvBuf = nullptr;                   // the movie's own 640x480 frame
+static int   g_mvPitch = 0;                       // its rows' length: the one the player took at its start
+static int   g_mvBp = 2;
 static void* WINAPI MnLock() {
     DWORD ret = (DWORD)__builtin_return_address(0);
     void* p = g_mnLock();
     g_mnLockReal = p; g_mnLockMovie = false;
-    if (!p || !(g_mnXf || g_mnSoftFrame) || !g_cfg.wsMovies || IsBadReadPtr(p, sizeof(g_mnLockCopy))) return p;
-    // the movie player's three lock calls (0x51789B, 0x517A36, 0x524823)
-    if (ret != 0x5178A1 && ret != 0x517A3C && ret != 0x524829) {
+    if (!p || IsBadReadPtr(p, sizeof(g_mnLockCopy))) return p;
+    // the movie player's three lock calls (0x51789B, 0x517A36 at a movie's start, 0x524823)
+    bool movie = ret == 0x5178A1 || ret == 0x517A3C || ret == 0x524829;
+    bool mapped = g_mnXf || g_mnSoftFrame;        // the menus in a mode other than the 640x480 the game asked for
+    int bp = g_mnRealBpp >= 24 ? 4 : 2;
+    if (ret == 0x517A3C) g_mvPitch = mapped ? 640 * bp : *(int*)((BYTE*)p + 4);   // what it takes now
+    if (!mapped) return p;
+    if (!movie) {
         static int logged = 0;
         if (logged < 4) { logged++; LogfAsync("widescreen: frame locked from 0x%06lX in the menus - left as it is\n", (unsigned long)ret); }
         return p;
     }
+    int pitch = g_mvPitch >= 640 * bp && g_mvPitch <= 4096 * 4 ? g_mvPitch : 640 * bp;
+    static size_t have = 0;
+    if (!g_mvBuf || have < (size_t)pitch * 480) {
+        free(g_mvBuf); have = (size_t)pitch * 480;
+        g_mvBuf = (BYTE*)calloc(have, 1);
+        if (!g_mvBuf) { have = 0; return p; }
+    }
+    g_mvPitch = pitch; g_mvBp = bp;
     memcpy(g_mnLockCopy, p, sizeof(g_mnLockCopy));
+    *(BYTE**)g_mnLockCopy = g_mvBuf; *(int*)(g_mnLockCopy + 4) = pitch;
     *(int*)(g_mnLockCopy + 0x0C) = 640; *(int*)(g_mnLockCopy + 0x10) = 480;
     g_mnLockMovie = true;
     return g_mnLockCopy;
 }
-static void MnScaleFrame() {
+// scales a 640x480 picture to the menu area of the locked frame: the one at
+// its own top left, or from (the movie's buffer)
+static void MnScaleFrame(const BYTE* from, int fromPitch) {
     BYTE* bits = *(BYTE**)g_mnLockReal; int pitch = *(int*)((BYTE*)g_mnLockReal + 4);
     int bp = g_mnRealBpp >= 24 ? 4 : 2;
     if (!bits || pitch < g_mnRealW * bp || g_mnRealW < 640 || g_mnRealH < 480) return;
+    if (!from) { from = bits; fromPitch = pitch; }
     BYTE*& src = g_mnSrc;
     if (!src) src = (BYTE*)malloc((size_t)640 * 480 * 4);
     if (!src) return;
     g_mnSrcBp = bp;
-    for (int y = 0; y < 480; y++) memcpy(src + (size_t)y * 640 * bp, bits + (size_t)y * pitch, (size_t)640 * bp);
+    for (int y = 0; y < 480; y++) memcpy(src + (size_t)y * 640 * bp, from + (size_t)y * fromPitch, (size_t)640 * bp);
     for (int y = 0; y < g_mnRealH; y++) memset(bits + (size_t)y * pitch, 0, (size_t)g_mnRealW * bp);
     int X0 = MnX(0), Y0 = MnY(0), X1 = MnX(640), Y1 = MnY(480);
     if (X0 < 0) X0 = 0;
@@ -3667,7 +3695,14 @@ static void MnScaleFrame() {
 }
 static void WINAPI MnUnlock(void* info) {
     if (info == g_mnLockCopy && g_mnLockReal) {
-        if (g_mnLockMovie && g_mnXf) MnScaleFrame();
+        if (g_mnLockMovie && g_mvBuf) {
+            if (g_mnXf && g_cfg.wsMovies) MnScaleFrame(g_mvBuf, g_mvPitch);
+            else {                                // at the top left (wsMovies=0; wsMenusSoft: scaled at the flip)
+                BYTE* bits = *(BYTE**)g_mnLockReal; int pitch = *(int*)((BYTE*)g_mnLockReal + 4);
+                if (bits && pitch >= 640 * g_mvBp)
+                    for (int y = 0; y < 480; y++) memcpy(bits + (size_t)y * pitch, g_mvBuf + (size_t)y * g_mvPitch, (size_t)640 * g_mvBp);
+            }
+        }
         info = g_mnLockReal;
     }
     g_mnLockReal = nullptr; g_mnLockMovie = false;
