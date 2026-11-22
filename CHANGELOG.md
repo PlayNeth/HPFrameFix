@@ -14,6 +14,26 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.8-plus
+
+0.1.8, plus the gameplay changes of 0.1.7-plus, and:
+
+- **Tracks at 0.85 of their size** (`trackScale`). The default is now 0.85, between the game's size and High Stakes' 0.7692. At High Stakes' size the narrowest roads, on Rocky Pass and Summit, only just fit three cars side by side; at 0.85 there's room between them. An existing `HPFrameFix.ini` keeps the value it has: change its `trackScale` line to get the new size.
+- **A size per track.** A line such as `trackScaleHometown=0.7` gives one track a size of its own, used instead of `trackScale`. The names: `Hometown`, `RedrockRidge`, `Atlantica`, `RockyPass`, `CountryWoods`, `LostCanyons`, `Aquatica`, `Summit`, `EmpireCity`.
+- **The other racers and the police keep their pace on the smaller tracks.** Each track tells them how fast to take every stretch of road, and those speeds were made for the track at its full size, so on a smaller one they braked too little for the corners. The speeds now shrink with the track, by the square root of its size, which keeps the cornering forces what they were.
+- **Lit nights follow the track's size:** the lamps' reach shrinks with the track.
+
+## 0.1.8
+
+- **Lit nights** (`nightLamps`, `nightLampReach`, `nightScenery`; `[Graphics]` section). At night the game darkens each track to a few percent of its daytime colours, and its lamps are only drawn as glows that light nothing, so night races were pitch black outside the headlights. Light is now added to the track as it loads:
+  - every steady lamp the track has lights the road and what's around it, in its glow's colour;
+  - on the game's own tracks, the buildings' windows, lit signs, tunnel lights, lamp posts and the power poles' lamps give light too;
+  - Atlantica and Aquatica, with few lamps of their own, get street lighting over the road and a lit city's glow;
+  - moving things with lights of their own are lit: Atlantica's boat, Aquatica's ships, Country Woods' doughnut, Summit's cable cars.
+
+  The light is worked out once, as the track loads, so it costs nothing while racing, and the headlights work as before. `nightLamps=0` brings back the game's night; `nightScenery=0` leaves only the lamps.
+- **Atlantica's and Aquatica's techno music no longer stuck** (`fixMusicMaps`). The middle part of that song is only two bars, and the song's map pointed them back at each other, so at middle intensity the same two bars played over and over. After them the music now goes on to the next part, as the other tracks' songs do.
+
 ## 0.1.7-plus
 
 0.1.7, plus the gameplay changes of 0.1.6-plus, and:

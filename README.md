@@ -82,10 +82,11 @@ Every feature has its own setting in `HPFrameFix.ini`.
 - **Direct3D fog**, as the game has it on 3dfx cards.
 - **Textures up to 512×512** with the Direct3D renderer, for HD texture and car mods.
 - **Car detail:** cars keep their detailed models further away, and no car is dropped to lower detail by the game's budget.
+- **Lit nights:** the game's nights are pitch black outside the headlights: its lamps only glow. Now the lamps light the road and what's around them, and so do the buildings' windows, lit signs, tunnel lights and lamp posts; Atlantica and Aquatica get street lighting and a lit city's glow. It's worked out as the track loads, so it costs nothing while racing.
 
 ### Gameplay
 
-- **Tracks at High Stakes' size:** High Stakes brought this game's tracks over shrunk to 0.7692 of their size. The same is done here as each track loads, with everything on it (the road, the scenery, objects, trackside cameras), while the cars keep theirs: the same speed covers more of the track (`trackScale`; `1` = the game's size). The game's files aren't changed.
+- **Smaller tracks:** High Stakes brought this game's tracks over shrunk to 0.7692 of their size. Here each track is shrunk to 0.85 as it loads, with everything on it (the road, the scenery, objects, trackside cameras), while the cars keep their size: the same speed covers more of the track, and the narrowest roads still fit three cars side by side. The other racers' speeds are scaled to match. `trackScale` sets the size (`1` = the game's), and a track can have its own, for example `trackScaleHometown=0.7`. The game's files aren't changed.
 - **No speed lost over jumps:** the game slows every car down with a strong drag while it's in the air, so every jump costs a lot of speed. That drag is gone by default, for every car, and `airDrag` can bring back any share of it.
 - **Speed effects,** growing to full strength at 320 km/h:
   - **speed blur** (Direct3D), from 90 km/h: the picture blurs outwards towards the screen's edges, while the middle, the HUD and the mirror stay sharp. In the cockpit view the dashboard blurs along with the road;
@@ -101,6 +102,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 - **Movie freeze:** no hang on a black screen after a movie on multi-core CPUs.
 - **Closing the window** ends the game.
+- **Atlantica's and Aquatica's techno music** no longer repeats the same two bars over and over.
 - **Disk space check:** no "less than 1MB free" error on today's big disks.
 - **Software renderer:** the standings list in a race gets its frame back, and resolutions it can't draw are left out of the list.
 
@@ -128,7 +130,10 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `wsPauseMenu` | `1` | In-race menus: `1` = frame over the screen, `2` = all in 4:3 (the pointer still reaches the whole screen), `0` = stretched. |
 | `d3dFog` | `1` | Fog on Direct3D. |
 | `maxTextureSize` | `512` | Largest texture the game loads. Above 256 with Direct3D only. |
-| `trackScale` | `0.7692` | The tracks' size, x the game's: `0.7692` = High Stakes', `1` = the game's. |
+| `nightLamps` | `1` | Night races: how bright the track's lamps light what's around them; `0` = the game's dark night. |
+| `nightLampReach` | `22` | How far a street lamp's light reaches, in metres at the game's track size. |
+| `nightScenery` | `1` | Night races: light from windows, signs, tunnel lights and the like, and the cities' street lighting; `0` = the lamps only. |
+| `trackScale` | `0.85` | The tracks' size, x the game's: `0.7692` = High Stakes', `1` = the game's. `trackScale<Track>` sets one track's. |
 | `airDrag` | `0` | Drag on cars in the air: `0` = none, `1` = the game's. |
 | `speedBlur` | `1.0` | Strength of the speed blur; `0` = off. |
 | `cameraShake` | `1.0` | Strength of the camera shake; `0` = off. |
