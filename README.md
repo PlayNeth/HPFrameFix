@@ -172,11 +172,11 @@ All next to the `.asi`:
 
 ## Building from source
 
-The source is a single file, `HPFrameFix.cpp`, built with MinGW-w64 (GCC 13), 32-bit:
+The source is `HPFrameFix.cpp` and the files under `src/`: one `.cpp` for each area of the mod, each with a header (`.h`) for what the other files use. It is built with MinGW-w64 (GCC 13), 32-bit, from the repository's folder:
 
 ```
 i686-w64-mingw32-g++ -std=c++17 -O2 -Wall -Wextra -shared -s -static-libgcc -static-libstdc++ \
-  -o HPFrameFix.asi HPFrameFix.cpp -lwinmm -luser32
+  -o HPFrameFix.asi HPFrameFix.cpp src/*.cpp -lwinmm -luser32
 ```
 
 ## Credits
