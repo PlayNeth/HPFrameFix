@@ -14,6 +14,17 @@ It works with the `nfs3.exe` whose SHA-1 is `87872783b8d09a27ae5a1b2a7de4f69b7fb
 
 ---
 
+## 0.1.8
+
+- **Lit nights** (`nightLamps`, `nightLampReach`, `nightScenery`; `[Graphics]` section). At night the game darkens each track to a few percent of its daytime colours, and its lamps are only drawn as glows that light nothing, so night races were pitch black outside the headlights. Light is now added to the track as it loads:
+  - every steady lamp the track has lights the road and what's around it, in its glow's colour;
+  - on the game's own tracks, the buildings' windows, lit signs, tunnel lights, lamp posts and the power poles' lamps give light too;
+  - Atlantica and Aquatica, with few lamps of their own, get street lighting over the road and a lit city's glow;
+  - moving things with lights of their own are lit: Atlantica's boat, Aquatica's ships, Country Woods' doughnut, Summit's cable cars.
+
+  The light is worked out once, as the track loads, so it costs nothing while racing, and the headlights work as before. `nightLamps=0` brings back the game's night; `nightScenery=0` leaves only the lamps.
+- **Atlantica's and Aquatica's techno music no longer stuck** (`fixMusicMaps`). The middle part of that song is only two bars, and the song's map pointed them back at each other, so at middle intensity the same two bars played over and over. After them the music now goes on to the next part, as the other tracks' songs do.
+
 ## 0.1.7
 
 - **Intro movie no longer garbled with the menus at the chosen resolution** (`wsMenus`). The movie player reads the screen's layout once, when a movie starts. The intro starts while the screen is still at the game's 640x480, just before the menus switch to their own resolution, so every frame was then written with the old layout and the intro came out as smeared bands. The player now draws into a 640x480 picture of its own, which is then scaled to the menu area (or, with `wsMovies=0`, copied to the top left corner).

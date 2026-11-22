@@ -80,6 +80,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 - **Direct3D fog**, as the game has it on 3dfx cards.
 - **Textures up to 512×512** with the Direct3D renderer, for HD texture and car mods.
 - **Car detail:** cars keep their detailed models further away, and no car is dropped to lower detail by the game's budget.
+- **Lit nights:** the game's nights are pitch black outside the headlights: its lamps only glow. Now the lamps light the road and what's around them, and so do the buildings' windows, lit signs, tunnel lights and lamp posts; Atlantica and Aquatica get street lighting and a lit city's glow. It's worked out as the track loads, so it costs nothing while racing.
 
 ### Sound
 
@@ -89,6 +90,7 @@ Every feature has its own setting in `HPFrameFix.ini`.
 
 - **Movie freeze:** no hang on a black screen after a movie on multi-core CPUs.
 - **Closing the window** ends the game.
+- **Atlantica's and Aquatica's techno music** no longer repeats the same two bars over and over.
 - **Disk space check:** no "less than 1MB free" error on today's big disks.
 - **Software renderer:** the standings list in a race gets its frame back, and resolutions it can't draw are left out of the list.
 
@@ -116,6 +118,9 @@ Every feature has its own setting in `HPFrameFix.ini`.
 | `wsPauseMenu` | `1` | In-race menus: `1` = frame over the screen, `2` = all in 4:3 (the pointer still reaches the whole screen), `0` = stretched. |
 | `d3dFog` | `1` | Fog on Direct3D. |
 | `maxTextureSize` | `512` | Largest texture the game loads. Above 256 with Direct3D only. |
+| `nightLamps` | `1` | Night races: how bright the track's lamps light what's around them; `0` = the game's dark night. |
+| `nightLampReach` | `22` | How far a street lamp's light reaches, in metres. |
+| `nightScenery` | `1` | Night races: light from windows, signs, tunnel lights and the like, and the cities' street lighting; `0` = the lamps only. |
 | `fixSound` | `1` | Sound driver fix. |
 | `soundLatencyMs` | `40` | Raise it if you hear dropouts. |
 | `portableRegistry` | `1` | The game's registry settings come from the mod, so no registry entries are needed. |
